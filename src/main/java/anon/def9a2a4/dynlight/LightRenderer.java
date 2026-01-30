@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class LightRenderer implements Listener {
 
     private DynLightConfig config;
+    private PlayerPreferences preferences;
     private double maxDistanceSquared;
 
     // Pre-created light block data for each level (1-15)
@@ -46,8 +47,9 @@ public class LightRenderer implements Listener {
     private static final Comparator<Offset> DISTANCE_COMPARATOR =
             Comparator.comparingInt(o -> o.dx * o.dx + o.dy * o.dy + o.dz * o.dz);
 
-    public LightRenderer(DynLightConfig config) {
+    public LightRenderer(DynLightConfig config, PlayerPreferences preferences) {
         this.config = config;
+        this.preferences = preferences;
         int renderDistance = config.renderDistance;
         this.maxDistanceSquared = (double) renderDistance * renderDistance;
 
@@ -131,6 +133,10 @@ public class LightRenderer implements Listener {
         Map<UUID, PlayerLightUpdate> updates = new HashMap<>(players.size());
 
         for (PlayerSnapshot player : players) {
+            // Skip players who have disabled dynamic lights
+            if (!preferences.isEnabled(player.playerId())) {
+                continue;
+            }
             Map<UUID, PlacedLight> previousState = stateSnapshot.getOrDefault(player.playerId(), Map.of());
             PlayerLightUpdate update = computePlayerUpdate(player, lightSources, previousState);
             updates.put(player.playerId(), update);
@@ -383,7 +389,11 @@ public class LightRenderer implements Listener {
         playerEntityState.clear();
     }
 
-    private void clearPlayer(Player player) {
+    /**
+     * Clear all sent light blocks for a specific player.
+     * Called when player disables lights or changes world.
+     */
+    public void clearPlayer(Player player) {
         UUID playerId = player.getUniqueId();
         Map<UUID, PlacedLight> entityState = playerEntityState.remove(playerId);
 

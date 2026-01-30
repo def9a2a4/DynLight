@@ -3,21 +3,26 @@ package anon.def9a2a4.dynlight.command;
 import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.LightSourceManager;
 import anon.def9a2a4.dynlight.LightRenderer;
+import anon.def9a2a4.dynlight.PlayerPreferences;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Command handler for /dynlight admin commands.
- * Provides reload, stats, and debug subcommands.
+ * Command handler for /dynlight commands.
+ * Provides help, enable, disable, info, reload, stats, and debug subcommands.
  */
 public class DynLightCommand implements CommandExecutor, TabCompleter {
 
@@ -25,17 +30,19 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
     private final Supplier<DynLightConfig> configSupplier;
     private final LightSourceManager sourceManager;
     private final LightRenderer renderer;
+    private final PlayerPreferences preferences;
     private final Runnable reloadCallback;
 
     private boolean debugEnabled = false;
 
     public DynLightCommand(JavaPlugin plugin, Supplier<DynLightConfig> configSupplier,
                            LightSourceManager sourceManager, LightRenderer renderer,
-                           Runnable reloadCallback) {
+                           PlayerPreferences preferences, Runnable reloadCallback) {
         this.plugin = plugin;
         this.configSupplier = configSupplier;
         this.sourceManager = sourceManager;
         this.renderer = renderer;
+        this.preferences = preferences;
         this.reloadCallback = reloadCallback;
     }
 
@@ -49,6 +56,10 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
         String subcommand = args[0].toLowerCase();
 
         switch (subcommand) {
+            case "help" -> sendHelp(sender);
+            case "enable" -> handleEnable(sender);
+            case "disable" -> handleDisable(sender);
+            case "info" -> handleInfo(sender);
             case "reload" -> handleReload(sender);
             case "stats" -> handleStats(sender);
             case "debug" -> handleDebug(sender, args);
@@ -56,6 +67,87 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
         }
 
         return true;
+    }
+
+    private void handleEnable(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "This command can only be used by players.");
+            return;
+        }
+
+        if (!sender.hasPermission("dynlight.use")) {
+            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
+            return;
+        }
+
+        if (preferences.isEnabled(player.getUniqueId())) {
+            sender.sendMessage(ChatColor.YELLOW + "Dynamic lights are already enabled for you.");
+        } else {
+            preferences.setEnabled(player.getUniqueId(), true);
+            sender.sendMessage(ChatColor.GREEN + "Dynamic lights enabled!");
+        }
+    }
+
+    private void handleDisable(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "This command can only be used by players.");
+            return;
+        }
+
+        if (!sender.hasPermission("dynlight.use")) {
+            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
+            return;
+        }
+
+        if (!preferences.isEnabled(player.getUniqueId())) {
+            sender.sendMessage(ChatColor.YELLOW + "Dynamic lights are already disabled for you.");
+        } else {
+            preferences.setEnabled(player.getUniqueId(), false);
+            // Clear any existing lights for this player
+            renderer.clearPlayer(player);
+            sender.sendMessage(ChatColor.YELLOW + "Dynamic lights disabled.");
+        }
+    }
+
+    private void handleInfo(CommandSender sender) {
+        if (!sender.hasPermission("dynlight.admin")) {
+            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
+            return;
+        }
+
+        int totalSources = sourceManager.getTotalLightSourceCount();
+        Set<UUID> disabledPlayers = preferences.getDisabledPlayers();
+        int onlinePlayers = Bukkit.getOnlinePlayers().size();
+
+        // Count online players with lights enabled/disabled
+        int enabledCount = 0;
+        int disabledCount = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (preferences.isEnabled(player.getUniqueId())) {
+                enabledCount++;
+            } else {
+                disabledCount++;
+            }
+        }
+
+        sender.sendMessage(ChatColor.GOLD + "=== DynLight Info ===");
+        sender.sendMessage(ChatColor.YELLOW + "Active light sources: " + ChatColor.WHITE + totalSources);
+        sender.sendMessage(ChatColor.YELLOW + "Online players: " + ChatColor.WHITE + onlinePlayers +
+                ChatColor.GRAY + " (" + ChatColor.GREEN + enabledCount + " enabled" +
+                ChatColor.GRAY + ", " + ChatColor.RED + disabledCount + " disabled" + ChatColor.GRAY + ")");
+
+        if (!disabledPlayers.isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "Players with lights disabled:");
+            for (UUID uuid : disabledPlayers) {
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+                String name = offlinePlayer.getName();
+                boolean online = offlinePlayer.isOnline();
+                sender.sendMessage(ChatColor.GRAY + "  - " +
+                        (online ? ChatColor.WHITE : ChatColor.DARK_GRAY) +
+                        (name != null ? name : uuid.toString()) +
+                        (online ? "" : ChatColor.DARK_GRAY + " (offline)"));
+            }
+        }
     }
 
     private void handleReload(CommandSender sender) {
@@ -89,11 +181,17 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
         }
 
         DynLightConfig config = configSupplier.get();
-        int totalSources = sourceManager.getAllLightSources().size();
+        int totalSources = sourceManager.getTotalLightSourceCount();
+        java.util.Map<String, Integer> worldCounts = sourceManager.getLightSourceCountsByWorld();
         int onlinePlayers = Bukkit.getOnlinePlayers().size();
 
         sender.sendMessage(ChatColor.GOLD + "=== DynLight Stats ===");
         sender.sendMessage(ChatColor.YELLOW + "Light sources: " + ChatColor.WHITE + totalSources);
+        if (worldCounts.size() > 1) {
+            for (java.util.Map.Entry<String, Integer> entry : worldCounts.entrySet()) {
+                sender.sendMessage(ChatColor.GRAY + "  " + entry.getKey() + ": " + ChatColor.WHITE + entry.getValue());
+            }
+        }
         sender.sendMessage(ChatColor.YELLOW + "Online players: " + ChatColor.WHITE + onlinePlayers);
         sender.sendMessage(ChatColor.YELLOW + "Update interval: " + ChatColor.WHITE + config.updateInterval + " ticks");
         sender.sendMessage(ChatColor.YELLOW + "Render distance: " + ChatColor.WHITE + config.renderDistance + " blocks");
@@ -142,9 +240,25 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "=== DynLight Commands ===");
-        sender.sendMessage(ChatColor.YELLOW + "/dynlight reload " + ChatColor.GRAY + "- Reload configuration");
-        sender.sendMessage(ChatColor.YELLOW + "/dynlight stats " + ChatColor.GRAY + "- Show plugin statistics");
-        sender.sendMessage(ChatColor.YELLOW + "/dynlight debug <on|off> " + ChatColor.GRAY + "- Toggle debug mode");
+
+        // Show user commands if they have permission
+        if (sender.hasPermission("dynlight.use")) {
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight enable " + ChatColor.GRAY + "- Enable dynamic lights for yourself");
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight disable " + ChatColor.GRAY + "- Disable dynamic lights for yourself");
+        }
+
+        // Show admin commands if they have permission
+        if (sender.hasPermission("dynlight.admin")) {
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight info " + ChatColor.GRAY + "- Show light info and player status");
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight reload " + ChatColor.GRAY + "- Reload configuration");
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight stats " + ChatColor.GRAY + "- Show plugin statistics");
+            sender.sendMessage(ChatColor.YELLOW + "/dynlight debug <on|off> " + ChatColor.GRAY + "- Toggle debug mode");
+        }
+
+        // If they have no permissions at all, show a message
+        if (!sender.hasPermission("dynlight.use") && !sender.hasPermission("dynlight.admin")) {
+            sender.sendMessage(ChatColor.GRAY + "You don't have permission to use any DynLight commands.");
+        }
     }
 
     @Override
@@ -153,16 +267,36 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 1) {
             String partial = args[0].toLowerCase();
-            for (String sub : List.of("reload", "stats", "debug")) {
-                if (sub.startsWith(partial)) {
-                    completions.add(sub);
+
+            // Add user commands if they have permission
+            if (sender.hasPermission("dynlight.use")) {
+                for (String sub : List.of("enable", "disable")) {
+                    if (sub.startsWith(partial)) {
+                        completions.add(sub);
+                    }
                 }
             }
+
+            // Add admin commands if they have permission
+            if (sender.hasPermission("dynlight.admin")) {
+                for (String sub : List.of("info", "reload", "stats", "debug")) {
+                    if (sub.startsWith(partial)) {
+                        completions.add(sub);
+                    }
+                }
+            }
+
+            // Always show help
+            if ("help".startsWith(partial)) {
+                completions.add("help");
+            }
         } else if (args.length == 2 && args[0].equalsIgnoreCase("debug")) {
-            String partial = args[1].toLowerCase();
-            for (String opt : List.of("on", "off")) {
-                if (opt.startsWith(partial)) {
-                    completions.add(opt);
+            if (sender.hasPermission("dynlight.admin")) {
+                String partial = args[1].toLowerCase();
+                for (String opt : List.of("on", "off")) {
+                    if (opt.startsWith(partial)) {
+                        completions.add(opt);
+                    }
                 }
             }
         }

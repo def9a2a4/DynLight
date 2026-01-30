@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DynLightPlugin extends JavaPlugin {
@@ -24,6 +25,7 @@ public class DynLightPlugin extends JavaPlugin {
     private LightSourceManager sourceManager;
     private LightRenderer renderer;
     private PlayerLightDetector playerDetector;
+    private PlayerPreferences playerPreferences;
     private BurningEntityListener burningEntityListener;
     private ProjectileLightListener projectileLightListener;
     private BukkitTask updateTask;
@@ -33,7 +35,7 @@ public class DynLightPlugin extends JavaPlugin {
     private final AtomicReference<ComputedUpdate> pendingUpdate = new AtomicReference<>();
 
     // Flag to prevent async task overlap when computation is slow
-    private volatile boolean asyncRunning = false;
+    private final AtomicBoolean asyncRunning = new AtomicBoolean(false);
 
     // Holds the computed updates and the source data needed for application
     private record ComputedUpdate(
@@ -49,7 +51,8 @@ public class DynLightPlugin extends JavaPlugin {
 
         // Initialize components
         this.sourceManager = new LightSourceManager();
-        this.renderer = new LightRenderer(config);
+        this.playerPreferences = new PlayerPreferences(this);
+        this.renderer = new LightRenderer(config, playerPreferences);
         this.playerDetector = new PlayerLightDetector(config);
 
         // Create event listeners
@@ -84,7 +87,7 @@ public class DynLightPlugin extends JavaPlugin {
         PluginCommand cmd = getCommand("dynlight");
         if (cmd != null) {
             DynLightCommand commandHandler = new DynLightCommand(
-                    this, () -> config, sourceManager, renderer, this::reloadConfiguration
+                    this, () -> config, sourceManager, renderer, playerPreferences, this::reloadConfiguration
             );
             cmd.setExecutor(commandHandler);
             cmd.setTabCompleter(commandHandler);
@@ -107,7 +110,8 @@ public class DynLightPlugin extends JavaPlugin {
             }
 
             // Skip if previous async task is still running (prevents task queue buildup)
-            if (asyncRunning) {
+            // Use compareAndSet for atomic check-and-set semantics
+            if (!asyncRunning.compareAndSet(false, true)) {
                 return;
             }
 
@@ -127,7 +131,6 @@ public class DynLightPlugin extends JavaPlugin {
             var stateSnapshot = renderer.snapshotEntityState();
 
             // 4. Kick off async computation with the snapshot
-            asyncRunning = true;
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
                     Map<UUID, PlayerLightUpdate> updates = renderer.computeUpdates(allSnapshots, playerPositions, stateSnapshot);
@@ -136,7 +139,7 @@ public class DynLightPlugin extends JavaPlugin {
                     getLogger().severe("Error computing light updates: " + e.getMessage());
                     e.printStackTrace();
                 } finally {
-                    asyncRunning = false;
+                    asyncRunning.set(false);
                 }
             });
         } catch (Exception e) {
@@ -208,6 +211,17 @@ public class DynLightPlugin extends JavaPlugin {
         // Update renderer with new config (for render distance changes)
         this.renderer.updateConfig(config);
         this.playerDetector = new PlayerLightDetector(config);
+
+        // Reschedule fire sweep task with new interval
+        if (fireSweepTask != null) {
+            fireSweepTask.cancel();
+        }
+        long interval = config.fireSweepInterval;
+        fireSweepTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+            burningEntityListener.checkFireExpiration();
+            projectileLightListener.checkFireExpiration();
+        }, interval, interval);
+
         getLogger().info("Configuration reloaded");
     }
 
@@ -222,6 +236,9 @@ public class DynLightPlugin extends JavaPlugin {
         }
         if (renderer != null) {
             renderer.clearAllPlayers();
+        }
+        if (playerPreferences != null) {
+            playerPreferences.save();
         }
         getLogger().info("DynLight plugin disabled!");
     }
