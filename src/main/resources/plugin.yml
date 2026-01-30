@@ -1,0 +1,6 @@
+name: DynLight
+main: anon.def9a2a4.dynlight.DynLightPlugin
+version: ${version}
+api-version: 1.21
+author: def9a2a4
+description: dynamic entity-based lights minecraft plugin
