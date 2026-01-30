@@ -16,7 +16,7 @@ public record EntityLightConfig(
 ) {
     /**
      * Default configuration for unknown entity types.
-     * base-light=0, fire-light=8, horizontal-radius=1, height=2
+     * base-light=0, fire-light=12, horizontal-radius=1, height=2
      */
-    public static final EntityLightConfig DEFAULT = new EntityLightConfig(0, 8, 1, 2);
+    public static final EntityLightConfig DEFAULT = new EntityLightConfig(0, 12, 1, 2);
 }

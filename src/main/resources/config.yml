@@ -1,6 +1,7 @@
 # DynLight configuration
 
 # Update interval in ticks (20 ticks = 1 second)
+# smaller values = more frequent updates = smoother light movement but higher CPU usage
 update-interval: 1
 
 # Maximum distance to render dynamic lights (blocks)
@@ -21,8 +22,8 @@ detection:
 
 # Light levels for player equipment
 light-levels:
-  enchanted-armor: 2
-  enchanted-items: 2
+  enchanted-armor: 3
+  enchanted-items: 3
 
 # Item light levels
 # Simple format (ITEM: level) = works underwater
@@ -45,10 +46,10 @@ items:
     light: 9
     water-sensitive: false
   CAMPFIRE:
-    light: 3
+    light: 6
     water-sensitive: true
   SOUL_CAMPFIRE:
-    light: 2
+    light: 4
     water-sensitive: true
   LAVA_BUCKET:
     light: 12
@@ -64,39 +65,39 @@ items:
     water-sensitive: false
   # Copper torches & lanterns (1.21.5+, ignored on older versions)
   COPPER_TORCH:
-    light: 14
+    light: 9
     water-sensitive: true
   COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   EXPOSED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   WEATHERED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   OXIDIZED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   WAXED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   WAXED_EXPOSED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   WAXED_WEATHERED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
   WAXED_OXIDIZED_COPPER_LANTERN:
-    light: 15
+    light: 11
     water-sensitive: false
 
   # Waterproof items (glow underwater)
-  GLOWSTONE: 12
+  GLOWSTONE: 14
   GLOWSTONE_DUST: 9
-  SHROOMLIGHT: 12
-  SEA_LANTERN: 12
-  JACK_O_LANTERN: 12
+  SHROOMLIGHT: 13
+  SEA_LANTERN: 14
+  JACK_O_LANTERN: 14
   END_ROD: 12
   OCHRE_FROGLIGHT: 12
   VERDANT_FROGLIGHT: 12
@@ -104,7 +105,7 @@ items:
   BEACON: 15
   CRYING_OBSIDIAN: 3
   MAGMA_BLOCK: 5
-  NETHER_STAR: 14
+  NETHER_STAR: 15
   GLOW_BERRIES: 3
   GLOW_LICHEN: 1
   GLOW_INK_SAC: 6
@@ -118,16 +119,19 @@ items:
   SEA_PICKLE: 5
 
 # Entity configuration
-# Defaults: base-light=0, fire-light=8, horizontal-radius=1, height=2
-# Only specify values that differ from defaults
 entities:
+  default:
+    base-light: 0
+    fire-light: 12
+    horizontal-radius: 1
+    height: 2
   # Always-lit entities
   BLAZE:
     base-light: 8
     fire-light: 8
   GLOW_SQUID:
     base-light: 8
-    fire-light: 8
+    fire-light: 15
     height: 1
   MAGMA_CUBE:
     base-light: 8
@@ -145,13 +149,13 @@ entities:
 
   # Projectiles
   ARROW:
-    fire-light: 6
+    fire-light: 11
     height: 2 # for when they land on snow
   SPECTRAL_ARROW:
-    base-light: 3
-    fire-light: 8
+    base-light: 6
+    fire-light: 13
   SNOWBALL:
-    fire-light: 6
+    fire-light: 7
     height: 2
   TRIDENT:
     fire-light: 8
@@ -248,30 +252,30 @@ entities:
 
   # Larger mobs (fire-light=10)
   LLAMA:
-    fire-light: 10
+    fire-light: 14
     height: 3
   IRON_GOLEM:
-    fire-light: 10
+    fire-light: 14
     height: 3
   RAVAGER:
-    fire-light: 10
+    fire-light: 15
     horizontal-radius: 2
     height: 3
   HOGLIN:
-    fire-light: 10
+    fire-light: 14
   ZOGLIN:
-    fire-light: 10
+    fire-light: 14
 
   # Tall mobs
   ENDERMAN:
     height: 3
   WARDEN:
-    fire-light: 10
+    fire-light: 15
     height: 3
 
   # Flying mobs
   GHAST:
-    fire-light: 10
+    fire-light: 15
     horizontal-radius: 2
     height: 3
   PHANTOM:
