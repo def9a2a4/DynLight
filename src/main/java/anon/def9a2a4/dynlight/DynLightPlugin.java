@@ -50,6 +50,9 @@ public class DynLightPlugin extends JavaPlugin {
     private final AtomicReference<Object> asyncState = new AtomicReference<>();
     private static final Object COMPUTING = new Object();
 
+    // Reusable set for mergeSnapshots() to avoid allocation each tick
+    private final java.util.Set<UUID> mergePlayerIds = new java.util.HashSet<>();
+
     // Holds the computed updates and the source data needed for application
     private record ComputedUpdate(
             Map<UUID, PlayerLightUpdate> updates,
@@ -86,6 +89,7 @@ public class DynLightPlugin extends JavaPlugin {
         fireSweepTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
             burningEntityListener.checkFireExpiration();
             projectileLightListener.checkFireExpiration();
+            projectileLightListener.checkFireIgnition();
         }, fireSweepInterval, fireSweepInterval);
 
         // Periodic cleanup task to remove stale light sources (every 200 ticks = 10 seconds)
@@ -192,10 +196,10 @@ public class DynLightPlugin extends JavaPlugin {
             return entities;
         }
 
-        // Build set of player entity IDs
-        java.util.Set<UUID> playerIds = new java.util.HashSet<>(players.size());
+        // Reuse set to avoid allocation (cleared and refilled each tick)
+        mergePlayerIds.clear();
         for (LightSnapshot snapshot : players) {
-            playerIds.add(snapshot.entityId());
+            mergePlayerIds.add(snapshot.entityId());
         }
 
         // Pre-size merged list
@@ -204,7 +208,7 @@ public class DynLightPlugin extends JavaPlugin {
 
         // Add entity snapshots that don't have a player override
         for (LightSnapshot snapshot : entities) {
-            if (!playerIds.contains(snapshot.entityId())) {
+            if (!mergePlayerIds.contains(snapshot.entityId())) {
                 merged.add(snapshot);
             }
         }
@@ -241,21 +245,9 @@ public class DynLightPlugin extends JavaPlugin {
      * Called by /dynlight reload command.
      */
     private void reloadConfiguration() {
-        // Wait for any in-flight async computation to complete
-        int waitAttempts = 0;
-        while (asyncState.get() == COMPUTING && waitAttempts < 100) {
-            try {
-                Thread.sleep(5);
-                waitAttempts++;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                getLogger().warning("Reload interrupted while waiting for async task");
-                return;
-            }
-        }
-        if (asyncState.get() == COMPUTING) {
-            getLogger().warning("Async task still running after timeout, proceeding with reload anyway");
-        }
+        // Force-clear any pending async state (safe since we're on main thread)
+        // The next tick will start fresh computation with new config
+        asyncState.set(null);
 
         reloadConfig();
         this.config = new DynLightConfig(getConfig());
@@ -282,6 +274,7 @@ public class DynLightPlugin extends JavaPlugin {
         fireSweepTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
             burningEntityListener.checkFireExpiration();
             projectileLightListener.checkFireExpiration();
+            projectileLightListener.checkFireIgnition();
         }, interval, interval);
 
         getLogger().info("Configuration reloaded");

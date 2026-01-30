@@ -4,10 +4,10 @@ import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.EntityLightConfig;
 import anon.def9a2a4.dynlight.api.DynLightAPI;
 import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Snowball;
 import org.bukkit.entity.SpectralArrow;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -16,7 +16,7 @@ import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 
 import java.util.Iterator;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,7 +27,10 @@ public class ProjectileLightListener implements Listener {
 
     private final DynLightConfig config;
     private final DynLightAPI api;
-    private final Set<UUID> burningProjectiles = ConcurrentHashMap.newKeySet();
+    // Store Entity references directly to avoid O(n) Bukkit.getEntity() lookups
+    private final Map<UUID, Entity> burningProjectiles = new ConcurrentHashMap<>();
+    // Watch list for projectiles that might catch fire mid-flight (e.g., passing through lava)
+    private final Map<UUID, Projectile> watchedProjectiles = new ConcurrentHashMap<>();
 
     public ProjectileLightListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
@@ -47,10 +50,21 @@ public class ProjectileLightListener implements Listener {
             }
         }
 
-        // Handle flaming arrows
+        // Handle arrows - track if on fire, otherwise watch for mid-flight ignition
         if (config.flamingArrowsEnabled && projectile instanceof Arrow arrow) {
             if (FireStateUtil.isOnFire(arrow)) {
                 trackBurningProjectile(arrow);
+            } else {
+                watchedProjectiles.put(arrow.getUniqueId(), arrow);
+            }
+        }
+
+        // Handle snowballs - track if on fire, otherwise watch for mid-flight ignition
+        if (config.flamingArrowsEnabled && projectile instanceof Snowball snowball) {
+            if (FireStateUtil.isOnFire(snowball)) {
+                trackBurningProjectile(snowball);
+            } else {
+                watchedProjectiles.put(snowball.getUniqueId(), snowball);
             }
         }
     }
@@ -64,6 +78,8 @@ public class ProjectileLightListener implements Listener {
         Entity entity = event.getEntity();
         if (entity instanceof Arrow arrow) {
             trackBurningProjectile(arrow);
+        } else if (entity instanceof Snowball snowball) {
+            trackBurningProjectile(snowball);
         }
     }
 
@@ -72,17 +88,25 @@ public class ProjectileLightListener implements Listener {
         Entity entity = event.getEntity();
         if (entity instanceof Projectile) {
             burningProjectiles.remove(entity.getUniqueId());
+            watchedProjectiles.remove(entity.getUniqueId());
             api.removeLightSource(entity);
         }
     }
 
-    private void trackBurningProjectile(Arrow arrow) {
-        UUID arrowId = arrow.getUniqueId();
-        EntityLightConfig arrowConfig = config.getEntityConfig(arrow.getType());
-        int fireLight = arrowConfig.fireLight();
+    private void trackBurningProjectile(Projectile projectile) {
+        // Remove from watch list if present (prevents double-tracking)
+        watchedProjectiles.remove(projectile.getUniqueId());
 
-        burningProjectiles.add(arrowId);
-        api.addLightSource(arrow, fireLight);
+        // Skip if already tracked as burning
+        if (burningProjectiles.containsKey(projectile.getUniqueId())) {
+            return;
+        }
+
+        EntityLightConfig projectileConfig = config.getEntityConfig(projectile.getType());
+        int fireLight = projectileConfig.fireLight();
+
+        burningProjectiles.put(projectile.getUniqueId(), projectile);
+        api.addLightSource(projectile, fireLight);
     }
 
     /**
@@ -90,12 +114,11 @@ public class ProjectileLightListener implements Listener {
      * Called by the plugin's consolidated fire sweep task.
      */
     public void checkFireExpiration() {
-        Iterator<UUID> it = burningProjectiles.iterator();
+        Iterator<Map.Entry<UUID, Entity>> it = burningProjectiles.entrySet().iterator();
         while (it.hasNext()) {
-            UUID arrowId = it.next();
-            Entity entity = Bukkit.getEntity(arrowId);
+            Entity entity = it.next().getValue();
 
-            if (entity == null || !entity.isValid()) {
+            if (!entity.isValid()) {
                 it.remove();
                 continue;
             }
@@ -115,6 +138,27 @@ public class ProjectileLightListener implements Listener {
                 } else {
                     api.removeLightSource(entity);
                 }
+            }
+        }
+    }
+
+    /**
+     * Periodic sweep to detect mid-flight fire ignition on watched projectiles.
+     * Called by the plugin's consolidated fire sweep task.
+     */
+    public void checkFireIgnition() {
+        Iterator<Map.Entry<UUID, Projectile>> it = watchedProjectiles.entrySet().iterator();
+        while (it.hasNext()) {
+            Projectile projectile = it.next().getValue();
+
+            if (!projectile.isValid()) {
+                it.remove();
+                continue;
+            }
+
+            if (FireStateUtil.isOnFire(projectile)) {
+                it.remove();
+                trackBurningProjectile(projectile);
             }
         }
     }

@@ -4,6 +4,7 @@ import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.EntityLightConfig;
 import anon.def9a2a4.dynlight.detection.cache.PlayerEquipmentCache;
 import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
+import anon.def9a2a4.dynlight.detection.util.WaterUtil;
 import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -11,12 +12,12 @@ import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Detects player light sources: held items, enchanted items, enchanted armor, fire.
@@ -26,12 +27,10 @@ import java.util.Map;
 public class PlayerLightDetector {
 
     private final DynLightConfig config;
-    private final Map<Material, Integer> itemLightLevels;
     private final PlayerEquipmentCache equipmentCache;
 
     public PlayerLightDetector(DynLightConfig config, PlayerEquipmentCache equipmentCache) {
         this.config = config;
-        this.itemLightLevels = config.itemLightLevels;
         this.equipmentCache = equipmentCache;
     }
 
@@ -101,10 +100,11 @@ public class PlayerLightDetector {
         PlayerInventory inv = player.getInventory();
         int level = 0;
 
-        // Check held items
+        // Check held items (with underwater sensitivity)
         if (config.heldItemsEnabled || config.enchantedItemsEnabled) {
-            level = Math.max(level, getItemLight(inv.getItemInMainHand()));
-            level = Math.max(level, getItemLight(inv.getItemInOffHand()));
+            boolean isUnderwater = WaterUtil.isUnderwater(player);
+            level = Math.max(level, getItemLight(inv.getItemInMainHand(), isUnderwater));
+            level = Math.max(level, getItemLight(inv.getItemInOffHand(), isUnderwater));
         }
 
         // Check armor for enchantments (cached - no per-tick enchantment checks)
@@ -115,24 +115,29 @@ public class PlayerLightDetector {
         return level;
     }
 
-    private int getItemLight(ItemStack item) {
+    private int getItemLight(ItemStack item, boolean isUnderwater) {
         if (item == null || item.getType() == Material.AIR) {
             return 0;
         }
 
         int level = 0;
 
-        // Light from item type
+        // Light from item type (with water sensitivity check)
         if (config.heldItemsEnabled) {
-            level = Math.max(level, itemLightLevels.getOrDefault(item.getType(), 0));
+            level = Math.max(level, config.getItemLightLevel(item.getType(), isUnderwater));
         }
 
-        // Light from enchantments (if item is enchanted)
+        // Light from enchantments (if item is enchanted) - not water-sensitive
         if (config.enchantedItemsEnabled) {
             // Cache ItemMeta to avoid race condition between hasItemMeta() and getItemMeta()
             ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasEnchants()) {
-                level = Math.max(level, config.enchantedItemsLightLevel);
+            if (meta != null) {
+                // Check applied enchantments OR stored enchantments (enchanted books)
+                boolean hasEnchants = meta.hasEnchants()
+                        || (meta instanceof EnchantmentStorageMeta esm && esm.hasStoredEnchants());
+                if (hasEnchants) {
+                    level = Math.max(level, config.enchantedItemsLightLevel);
+                }
             }
         }
 

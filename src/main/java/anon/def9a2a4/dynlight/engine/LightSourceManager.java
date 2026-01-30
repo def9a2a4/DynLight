@@ -125,15 +125,17 @@ public class LightSourceManager implements DynLightAPI {
     }
 
     /**
-     * Get all active light sources for rendering.
-     * Returns a snapshot copy aggregated from all worlds.
+     * Get all active light sources for rendering, organized by world.
+     * Returns a snapshot copy preserving world partitioning.
+     *
+     * @return Map of world name to (entity UUID to light level)
      */
-    public Map<UUID, Integer> getAllLightSources() {
-        Map<UUID, Integer> allSources = new HashMap<>();
-        for (Map<UUID, Integer> worldSources : lightSourcesByWorld.values()) {
-            allSources.putAll(worldSources);
+    public Map<String, Map<UUID, Integer>> getAllLightSources() {
+        Map<String, Map<UUID, Integer>> result = new HashMap<>(lightSourcesByWorld.size());
+        for (Map.Entry<String, Map<UUID, Integer>> entry : lightSourcesByWorld.entrySet()) {
+            result.put(entry.getKey(), new HashMap<>(entry.getValue()));
         }
-        return allSources;
+        return result;
     }
 
     /**

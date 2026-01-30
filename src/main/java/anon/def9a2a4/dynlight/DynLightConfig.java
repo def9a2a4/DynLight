@@ -33,8 +33,8 @@ public class DynLightConfig {
     public final int enchantedArmorLightLevel;
     public final int enchantedItemsLightLevel;
 
-    // Item light levels
-    public final Map<Material, Integer> itemLightLevels;
+    // Item light configurations
+    public final Map<Material, ItemLightConfig> itemConfigs;
 
     // Entity configurations (fire, base light, radius)
     private final EntityLightConfig defaultEntityConfig;
@@ -63,8 +63,8 @@ public class DynLightConfig {
         this.enchantedArmorLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-armor", 10), 0, 15, "light-levels.enchanted-armor");
         this.enchantedItemsLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-items", 8), 0, 15, "light-levels.enchanted-items");
 
-        // Item light levels
-        this.itemLightLevels = loadItemLightLevels(config);
+        // Item light configurations
+        this.itemConfigs = loadItemConfigs(config);
 
         // Entity configurations
         this.defaultEntityConfig = loadEntityConfig(
@@ -75,19 +75,37 @@ public class DynLightConfig {
         this.entityConfigs = loadEntityConfigs(config);
     }
 
-    private Map<Material, Integer> loadItemLightLevels(FileConfiguration config) {
-        Map<Material, Integer> levels = new EnumMap<>(Material.class);
+    private Map<Material, ItemLightConfig> loadItemConfigs(FileConfiguration config) {
+        Map<Material, ItemLightConfig> configs = new EnumMap<>(Material.class);
 
         ConfigurationSection items = config.getConfigurationSection("items");
         if (items != null) {
             for (String key : items.getKeys(false)) {
                 try {
                     Material material = Material.valueOf(key.toUpperCase());
-                    int level = items.getInt(key);
-                    if (level > 0 && level <= 15) {
-                        levels.put(material, level);
+
+                    if (items.isInt(key)) {
+                        // Simple format: TORCH: 10 (backwards compatible, not water-sensitive)
+                        int level = items.getInt(key);
+                        if (level > 0 && level <= 15) {
+                            configs.put(material, ItemLightConfig.simple(level));
+                        } else if (level < 0 || level > 15) {
+                            Bukkit.getLogger().warning("[DynLight] Item " + key + " has invalid light level: " + level + " (must be 0-15)");
+                        }
+                        // level == 0 silently skips (disables the item)
+                    } else if (items.isConfigurationSection(key)) {
+                        // Extended format: TORCH: {light: 10, water-sensitive: true}
+                        ConfigurationSection itemSection = items.getConfigurationSection(key);
+                        int level = itemSection.getInt("light", 0);
+                        boolean waterSensitive = itemSection.getBoolean("water-sensitive", false);
+
+                        if (level > 0 && level <= 15) {
+                            configs.put(material, new ItemLightConfig(level, waterSensitive));
+                        } else if (level < 0 || level > 15) {
+                            Bukkit.getLogger().warning("[DynLight] Item " + key + " has invalid light level: " + level + " (must be 0-15)");
+                        }
                     } else {
-                        Bukkit.getLogger().warning("[DynLight] Item " + key + " has invalid light level: " + level + " (must be 1-15)");
+                        Bukkit.getLogger().warning("[DynLight] Invalid item config format for: " + key);
                     }
                 } catch (IllegalArgumentException e) {
                     Bukkit.getLogger().warning("[DynLight] Invalid material in config: " + key);
@@ -96,7 +114,30 @@ public class DynLightConfig {
         }
 
         // Wrap in unmodifiable to prevent external modification
-        return Collections.unmodifiableMap(levels);
+        return Collections.unmodifiableMap(configs);
+    }
+
+    /**
+     * Get light level for a material, accounting for water sensitivity.
+     * Returns 0 if the item is water-sensitive and underwater.
+     */
+    public int getItemLightLevel(Material material, boolean isUnderwater) {
+        ItemLightConfig config = itemConfigs.get(material);
+        if (config == null) {
+            return 0;
+        }
+        if (isUnderwater && config.waterSensitive()) {
+            return 0;
+        }
+        return config.lightLevel();
+    }
+
+    /**
+     * Get the base light level for a material (ignoring water sensitivity).
+     */
+    public int getItemLightLevel(Material material) {
+        ItemLightConfig config = itemConfigs.get(material);
+        return config != null ? config.lightLevel() : 0;
     }
 
     private EntityLightConfig loadEntityConfig(ConfigurationSection section, EntityLightConfig fallback, String entityKey) {

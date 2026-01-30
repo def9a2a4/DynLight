@@ -40,6 +40,7 @@ public class LightRenderer implements Listener {
 
     // Pre-created light block data for each level (1-15)
     private final Light[] lightLevels = new Light[16];
+    private final Light[] lightLevelsWaterlogged = new Light[16];
 
     // Precomputed offsets for light placement, keyed by (radius, height) pair
     private final Map<Long, List<Offset>> offsetCache = new HashMap<>();
@@ -66,6 +67,14 @@ public class LightRenderer implements Listener {
             Light light = (Light) Bukkit.createBlockData(Material.LIGHT);
             light.setLevel(i);
             lightLevels[i] = light;
+        }
+
+        // Pre-create waterlogged light blocks for underwater placement
+        for (int i = 0; i <= 15; i++) {
+            Light light = (Light) Bukkit.createBlockData(Material.LIGHT);
+            light.setLevel(i);
+            light.setWaterlogged(true);
+            lightLevelsWaterlogged[i] = light;
         }
     }
 
@@ -170,9 +179,9 @@ public class LightRenderer implements Listener {
             if (player.distanceSquaredTo(source) > maxDistanceSquared) {
                 continue;
             }
-            // Keep highest light level if duplicate entity
-            LightSnapshot existing = currentSources.get(source.entityId());
-            if (existing == null || source.lightLevel() > existing.lightLevel()) {
+            // Player snapshots come first in merged list and take priority
+            // For any duplicates, keep the first occurrence
+            if (!currentSources.containsKey(source.entityId())) {
                 currentSources.put(source.entityId(), source);
             }
         }
@@ -209,8 +218,8 @@ public class LightRenderer implements Listener {
                 int dy = Math.abs(newY - oldPos.y());
                 int dz = Math.abs(newZ - oldPos.z());
 
-                if (dx > 1 || dy > 1 || dz > 1) {
-                    // Entity moved significantly - remove old, add new
+                if (dx >= 1 || dy >= 1 || dz >= 1) {
+                    // Entity moved to different block - remove old, add new
                     toRemove.add(oldPos);
                     toAdd.put(new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel());
                 } else if (oldPlacement.level() != source.lightLevel()) {
@@ -334,7 +343,9 @@ public class LightRenderer implements Listener {
             // Find valid position for light placement
             BlockPos placedPos = findLightPosition(world, idealPos, entityConfig, usedPositions);
             if (placedPos != null) {
-                batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightLevels[lightLevel]);
+                Material targetMaterial = world.getBlockAt(placedPos.x(), placedPos.y(), placedPos.z()).getType();
+                Light lightData = (targetMaterial == Material.WATER) ? lightLevelsWaterlogged[lightLevel] : lightLevels[lightLevel];
+                batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightData);
                 usedPositions.add(placedPos);
                 entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
             }
@@ -360,7 +371,13 @@ public class LightRenderer implements Listener {
         }
 
         // Slower path: iterate through offset positions
+        // Optimization: check canPlaceLight FIRST (cheap world lookup), only create BlockPos if valid
+        // This avoids allocating BlockPos for positions that fail the air/water check
         List<Offset> offsets = getOffsets(entityConfig.horizontalRadius(), entityConfig.height());
+        String worldName = idealPos.worldName();
+        int baseX = idealPos.x();
+        int baseY = idealPos.y();
+        int baseZ = idealPos.z();
 
         for (Offset o : offsets) {
             // Skip (0,0,0) since we already checked ideal position
@@ -368,19 +385,28 @@ public class LightRenderer implements Listener {
                 continue;
             }
 
-            BlockPos tryPos = new BlockPos(
-                    idealPos.worldName(),
-                    idealPos.x() + o.dx,
-                    idealPos.y() + o.dy,
-                    idealPos.z() + o.dz
-            );
+            int tryX = baseX + o.dx;
+            int tryY = baseY + o.dy;
+            int tryZ = baseZ + o.dz;
 
-            if (!usedPositions.contains(tryPos) && canPlaceLight(world, tryPos)) {
+            // Check canPlaceLight first (most positions fail here, avoiding BlockPos allocation)
+            if (!canPlaceLightAt(world, tryX, tryY, tryZ)) {
+                continue;
+            }
+
+            // Only create BlockPos for positions that pass the air/water check
+            BlockPos tryPos = new BlockPos(worldName, tryX, tryY, tryZ);
+            if (!usedPositions.contains(tryPos)) {
                 return tryPos;
             }
         }
 
         return null;
+    }
+
+    private boolean canPlaceLightAt(World world, int x, int y, int z) {
+        Material type = world.getBlockAt(x, y, z).getType();
+        return type == Material.AIR || type == Material.CAVE_AIR || type == Material.WATER;
     }
 
     private boolean canPlaceLight(World world, BlockPos pos) {

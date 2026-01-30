@@ -12,8 +12,10 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,6 +29,10 @@ public class PlayerEquipmentCache implements Listener {
 
     // Player UUID -> has enchanted armor
     private final Map<UUID, Boolean> enchantedArmorCache = new ConcurrentHashMap<>();
+
+    // Pending updates batched into a single task
+    private final Set<UUID> pendingUpdates = ConcurrentHashMap.newKeySet();
+    private volatile BukkitTask batchTask;
 
     public PlayerEquipmentCache(Plugin plugin) {
         this.plugin = plugin;
@@ -96,9 +102,32 @@ public class PlayerEquipmentCache implements Listener {
         boolean isShiftClick = event.isShiftClick();
 
         if (isArmorSlot || isShiftClick) {
-            // Delay update by 1 tick to let the inventory update complete
-            player.getServer().getScheduler().runTask(plugin, () -> updatePlayer(player));
+            // Batch updates: add to pending set, schedule single task if not already scheduled
+            scheduleUpdate(player.getUniqueId());
         }
+    }
+
+    /**
+     * Schedule a batched update for a player. Multiple rapid clicks are coalesced into one update.
+     */
+    private void scheduleUpdate(UUID playerId) {
+        pendingUpdates.add(playerId);
+
+        // Only schedule a new task if one isn't already pending
+        if (batchTask == null || batchTask.isCancelled()) {
+            batchTask = plugin.getServer().getScheduler().runTask(plugin, this::processPendingUpdates);
+        }
+    }
+
+    private void processPendingUpdates() {
+        batchTask = null;
+        for (UUID playerId : pendingUpdates) {
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                updatePlayer(player);
+            }
+        }
+        pendingUpdates.clear();
     }
 
     @EventHandler

@@ -5,7 +5,6 @@ import anon.def9a2a4.dynlight.EntityLightConfig;
 import anon.def9a2a4.dynlight.api.DynLightAPI;
 import anon.def9a2a4.dynlight.detection.util.EntityFilters;
 import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -15,7 +14,7 @@ import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
 
 import java.util.Iterator;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,7 +26,8 @@ public class BurningEntityListener implements Listener {
 
     private final DynLightConfig config;
     private final DynLightAPI api;
-    private final Set<UUID> burningEntities = ConcurrentHashMap.newKeySet();
+    // Store Entity references directly to avoid O(n) Bukkit.getEntity() lookups
+    private final Map<UUID, Entity> burningEntities = new ConcurrentHashMap<>();
 
     public BurningEntityListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
@@ -71,8 +71,7 @@ public class BurningEntityListener implements Listener {
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
-        UUID entityId = event.getEntity().getUniqueId();
-        burningEntities.remove(entityId);
+        burningEntities.remove(event.getEntity().getUniqueId());
         // Note: EntityLightListener handles removal from sourceManager
     }
 
@@ -85,11 +84,10 @@ public class BurningEntityListener implements Listener {
     }
 
     private void trackBurningEntity(Entity entity) {
-        UUID entityId = entity.getUniqueId();
         EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
         int fireLight = entityConfig.fireLight();
 
-        burningEntities.add(entityId);
+        burningEntities.put(entity.getUniqueId(), entity);
 
         // Update light level (fire light is typically higher than base light)
         int currentLevel = api.getLightLevel(entity);
@@ -104,12 +102,11 @@ public class BurningEntityListener implements Listener {
      * Called by the plugin's consolidated fire sweep task.
      */
     public void checkFireExpiration() {
-        Iterator<UUID> it = burningEntities.iterator();
+        Iterator<Map.Entry<UUID, Entity>> it = burningEntities.entrySet().iterator();
         while (it.hasNext()) {
-            UUID entityId = it.next();
-            Entity entity = Bukkit.getEntity(entityId);
+            Entity entity = it.next().getValue();
 
-            if (entity == null || !entity.isValid()) {
+            if (!entity.isValid()) {
                 it.remove();
                 continue;
             }
