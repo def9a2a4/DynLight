@@ -3,33 +3,48 @@ package anon.def9a2a4.dynlight;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.data.type.Light;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Sends fake light blocks to players and tracks sent blocks for cleanup.
+ * Renders dynamic lights to players using fake light blocks.
+ * Split into async computation and sync application for performance.
  */
 public class LightRenderer implements Listener {
 
-    private final DynLightConfig config;
-    private final double maxDistanceSquared;
-
-    // Per-player tracking of sent light block locations
-    private final Map<UUID, Set<Location>> sentBlocks = new ConcurrentHashMap<>();
+    private DynLightConfig config;
+    private double maxDistanceSquared;
 
     // Pre-created light block data for each level (1-15)
     private final Light[] lightLevels = new Light[16];
+
+    // Precomputed offsets for light placement, keyed by (radius, height) pair
+    private final Map<Long, List<Offset>> offsetCache = new HashMap<>();
+
+    // Per-player tracking: entityId -> placed light block position and level
+    private final Map<UUID, Map<UUID, PlacedLight>> playerEntityState = new ConcurrentHashMap<>();
+
+    private record Offset(int dx, int dy, int dz) {}
+    private record PlacedLight(BlockPos pos, int level) {}
+
+    // Static comparator to avoid allocation on each computeOffsets() call
+    private static final Comparator<Offset> DISTANCE_COMPARATOR =
+            Comparator.comparingInt(o -> o.dx * o.dx + o.dy * o.dy + o.dz * o.dz);
 
     public LightRenderer(DynLightConfig config) {
         this.config = config;
@@ -45,93 +60,316 @@ public class LightRenderer implements Listener {
     }
 
     /**
-     * Update light blocks for all online players.
+     * Update configuration (called on reload).
+     * Updates render distance for future calculations.
+     *
+     * @param newConfig The new configuration
      */
-    public void updateAllPlayers(Map<UUID, Integer> lightSources) {
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            updatePlayer(player, lightSources);
-        }
+    public void updateConfig(DynLightConfig newConfig) {
+        this.config = newConfig;
+        this.maxDistanceSquared = (double) newConfig.renderDistance * newConfig.renderDistance;
     }
 
-    private void updatePlayer(Player player, Map<UUID, Integer> lightSources) {
-        Set<Location> newBlocks = new HashSet<>();
-        Set<Location> oldBlocks = sentBlocks.getOrDefault(player.getUniqueId(), Set.of());
+    private List<Offset> getOffsets(int radius, int height) {
+        long key = ((long) radius << 32) | (height & 0xFFFFFFFFL);
+        return offsetCache.computeIfAbsent(key, k -> computeOffsets(radius, height));
+    }
 
-        // Calculate new light positions
-        for (Map.Entry<UUID, Integer> entry : lightSources.entrySet()) {
-            Entity entity = Bukkit.getEntity(entry.getKey());
-            if (entity == null || !entity.getWorld().equals(player.getWorld())) {
-                continue;
-            }
+    private List<Offset> computeOffsets(int radius, int height) {
+        List<Offset> offsets = new ArrayList<>();
 
-            Location entityLoc = entity.getLocation();
-            if (entityLoc.distanceSquared(player.getLocation()) > maxDistanceSquared) {
-                continue;
-            }
+        // Center column
+        for (int dy = 0; dy < height; dy++) {
+            offsets.add(new Offset(0, dy, 0));
+        }
 
-            int lightLevel = entry.getValue();
-            EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
-
-            // Try to place light in the configured radius
-            Location placedAt = tryPlaceLight(player, entityLoc, entityConfig, lightLevel, newBlocks);
-            if (placedAt != null) {
-                newBlocks.add(placedAt);
+        // Cardinal directions (no corners)
+        for (int r = 1; r <= radius; r++) {
+            for (int dy = 0; dy < height; dy++) {
+                offsets.add(new Offset(r, dy, 0));
+                offsets.add(new Offset(-r, dy, 0));
+                offsets.add(new Offset(0, dy, r));
+                offsets.add(new Offset(0, dy, -r));
             }
         }
 
-        // Clear old blocks that are no longer needed
-        for (Location oldLoc : oldBlocks) {
-            if (!newBlocks.contains(oldLoc)) {
-                // Restore original block state
-                player.sendBlockChange(oldLoc, oldLoc.getBlock().getBlockData());
-            }
-        }
+        // Sort by distance from origin (use static comparator to avoid allocation)
+        offsets.sort(DISTANCE_COMPARATOR);
 
-        sentBlocks.put(player.getUniqueId(), newBlocks);
+        return offsets;
     }
 
     /**
-     * Try to place a light block within the configured radius.
-     * Returns the location where light was placed, or null if no suitable location found.
+     * Snapshot the current player entity state for async processing.
+     * MUST be called from main thread before async computation to avoid race conditions.
+     *
+     * @return Deep copy of player entity state safe for async access
      */
-    private Location tryPlaceLight(Player player, Location entityLoc, EntityLightConfig entityConfig,
-                                   int lightLevel, Set<Location> alreadyUsed) {
-        Location baseLoc = entityLoc.getBlock().getLocation();
-        int baseX = baseLoc.getBlockX();
-        int baseY = baseLoc.getBlockY();
-        int baseZ = baseLoc.getBlockZ();
+    public Map<UUID, Map<UUID, PlacedLight>> snapshotEntityState() {
+        Map<UUID, Map<UUID, PlacedLight>> snapshot = new HashMap<>(playerEntityState.size());
+        for (Map.Entry<UUID, Map<UUID, PlacedLight>> entry : playerEntityState.entrySet()) {
+            snapshot.put(entry.getKey(), new HashMap<>(entry.getValue()));
+        }
+        return snapshot;
+    }
 
-        // Try center column first (most likely to be valid)
-        for (int dy = 0; dy < entityConfig.height(); dy++) {
-            Location tryLoc = new Location(baseLoc.getWorld(), baseX, baseY + dy, baseZ);
-            if (canPlaceLight(tryLoc) && !alreadyUsed.contains(tryLoc)) {
-                player.sendBlockChange(tryLoc, lightLevels[lightLevel]);
-                return tryLoc;
+    /**
+     * Compute light updates for all players. ASYNC-SAFE.
+     * Determines which entities need light updates per player.
+     *
+     * @param lightSources  All light source snapshots
+     * @param players       All player snapshots
+     * @param stateSnapshot Snapshot of entity state (from snapshotEntityState, taken on main thread)
+     * @return Map of player UUID to their computed light updates
+     */
+    public Map<UUID, PlayerLightUpdate> computeUpdates(
+            List<LightSnapshot> lightSources,
+            List<PlayerSnapshot> players,
+            Map<UUID, Map<UUID, PlacedLight>> stateSnapshot) {
+
+        // Pre-size based on player count
+        Map<UUID, PlayerLightUpdate> updates = new HashMap<>(players.size());
+
+        for (PlayerSnapshot player : players) {
+            Map<UUID, PlacedLight> previousState = stateSnapshot.getOrDefault(player.playerId(), Map.of());
+            PlayerLightUpdate update = computePlayerUpdate(player, lightSources, previousState);
+            updates.put(player.playerId(), update);
+        }
+
+        return updates;
+    }
+
+    /**
+     * Compute light update for a single player. ASYNC-SAFE.
+     * Uses single-pass algorithm for efficiency.
+     */
+    private PlayerLightUpdate computePlayerUpdate(PlayerSnapshot player, List<LightSnapshot> lightSources,
+                                                   Map<UUID, PlacedLight> previousState) {
+        // Calculate which entities should have lights for this player
+        Map<UUID, LightSnapshot> currentSources = new HashMap<>();
+        for (LightSnapshot source : lightSources) {
+            // Must be in same world (check first - cheaper than distance calc)
+            if (!source.worldName().equals(player.worldName())) {
+                continue;
+            }
+            // Must be within render distance
+            if (player.distanceSquaredTo(source) > maxDistanceSquared) {
+                continue;
+            }
+            // Keep highest light level if duplicate entity
+            LightSnapshot existing = currentSources.get(source.entityId());
+            if (existing == null || source.lightLevel() > existing.lightLevel()) {
+                currentSources.put(source.entityId(), source);
             }
         }
 
-        // Try surrounding positions (cardinal directions only, no corners)
-        int hr = entityConfig.horizontalRadius();
-        for (int dx = -hr; dx <= hr; dx++) {
-            for (int dz = -hr; dz <= hr; dz++) {
-                if (dx == 0 && dz == 0) continue; // Already tried center
-                if (dx != 0 && dz != 0) continue; // Skip corners
+        // Pre-size based on expected changes (use previousState size as heuristic)
+        int expectedSize = Math.max(previousState.size(), currentSources.size());
+        Map<BlockPos, Integer> toAdd = new HashMap<>(expectedSize);
+        Set<BlockPos> toRemove = new HashSet<>(previousState.size() / 4 + 1);
+        Map<BlockPos, Integer> newState = new HashMap<>(currentSources.size());
 
-                for (int dy = 0; dy < entityConfig.height(); dy++) {
-                    Location tryLoc = new Location(baseLoc.getWorld(), baseX + dx, baseY + dy, baseZ + dz);
-                    if (canPlaceLight(tryLoc) && !alreadyUsed.contains(tryLoc)) {
-                        player.sendBlockChange(tryLoc, lightLevels[lightLevel]);
-                        return tryLoc;
-                    }
+        // Track which previous entities we've seen (for single-pass removal detection)
+        Set<UUID> seenPreviousEntities = new HashSet<>(previousState.size());
+
+        // Single pass: check current sources against previous state
+        for (Map.Entry<UUID, LightSnapshot> entry : currentSources.entrySet()) {
+            UUID entityId = entry.getKey();
+            LightSnapshot source = entry.getValue();
+
+            PlacedLight oldPlacement = previousState.get(entityId);
+            if (oldPlacement != null) {
+                seenPreviousEntities.add(entityId);
+            }
+
+            // Compare positions using primitives first (avoid BlockPos allocation for unchanged)
+            int newX = source.blockX();
+            int newY = source.blockY();
+            int newZ = source.blockZ();
+
+            if (oldPlacement == null) {
+                // New entity - needs light placed
+                toAdd.put(new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel());
+            } else {
+                BlockPos oldPos = oldPlacement.pos();
+                int dx = Math.abs(newX - oldPos.x());
+                int dy = Math.abs(newY - oldPos.y());
+                int dz = Math.abs(newZ - oldPos.z());
+
+                if (dx > 1 || dy > 1 || dz > 1) {
+                    // Entity moved significantly - remove old, add new
+                    toRemove.add(oldPos);
+                    toAdd.put(new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel());
+                } else if (oldPlacement.level() != source.lightLevel()) {
+                    // Same position but light level changed - update in place
+                    toAdd.put(oldPos, source.lightLevel());
+                    newState.put(oldPos, source.lightLevel());
+                } else {
+                    // Unchanged - keep existing
+                    newState.put(oldPos, oldPlacement.level());
                 }
             }
         }
 
-        return null; // No suitable location found
+        // Single pass removal: entities in previous but not seen are removed
+        for (Map.Entry<UUID, PlacedLight> entry : previousState.entrySet()) {
+            if (!seenPreviousEntities.contains(entry.getKey())) {
+                toRemove.add(entry.getValue().pos());
+            }
+        }
+
+        // Don't remove positions that are being re-added
+        toRemove.removeAll(toAdd.keySet());
+
+        return new PlayerLightUpdate(toAdd, toRemove, newState);
     }
 
-    private boolean canPlaceLight(Location loc) {
-        Material type = loc.getBlock().getType();
+    /**
+     * Apply computed updates to players. MAIN THREAD ONLY.
+     * Sends block changes and updates internal state.
+     *
+     * @param updates      Map of player UUID to their computed updates
+     * @param lightSources The original light sources (needed for entity config lookup)
+     */
+    public void applyUpdates(Map<UUID, PlayerLightUpdate> updates, List<LightSnapshot> lightSources) {
+        // Build entity lookup maps (forward and reverse)
+        Map<UUID, LightSnapshot> sourceMap = new HashMap<>();
+        Map<BlockPos, UUID> positionToEntity = new HashMap<>();
+        for (LightSnapshot source : lightSources) {
+            sourceMap.put(source.entityId(), source);
+            // Build reverse lookup: position -> entity UUID
+            BlockPos pos = new BlockPos(source.worldName(), source.blockX(), source.blockY(), source.blockZ());
+            positionToEntity.put(pos, source.entityId());
+        }
+
+        for (Map.Entry<UUID, PlayerLightUpdate> entry : updates.entrySet()) {
+            UUID playerId = entry.getKey();
+            PlayerLightUpdate update = entry.getValue();
+
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null || !player.isOnline()) {
+                continue;
+            }
+
+            applyPlayerUpdate(player, update, sourceMap, positionToEntity);
+        }
+    }
+
+    /**
+     * Apply update for a single player. MAIN THREAD ONLY.
+     */
+    private void applyPlayerUpdate(Player player, PlayerLightUpdate update,
+                                   Map<UUID, LightSnapshot> sourceMap, Map<BlockPos, UUID> positionToEntity) {
+        UUID playerId = player.getUniqueId();
+        World world = player.getWorld();
+        String worldName = world.getName();
+
+        // Get or create entity state map
+        Map<UUID, PlacedLight> entityState = playerEntityState.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+
+        // Single-pass: build reverse lookup AND used positions set simultaneously
+        Map<BlockPos, UUID> statePositionToEntity = new HashMap<>(entityState.size());
+        Set<BlockPos> usedPositions = new HashSet<>(entityState.size());
+        for (Map.Entry<UUID, PlacedLight> entry : entityState.entrySet()) {
+            BlockPos pos = entry.getValue().pos();
+            statePositionToEntity.put(pos, entry.getKey());
+            usedPositions.add(pos);
+        }
+
+        // Remove old light blocks
+        for (BlockPos pos : update.toRemove()) {
+            if (!pos.worldName().equals(worldName)) {
+                continue;
+            }
+            Location loc = new Location(world, pos.x(), pos.y(), pos.z());
+            player.sendBlockChange(loc, loc.getBlock().getBlockData());
+
+            // Remove from entity state using O(1) lookup
+            UUID entityToRemove = statePositionToEntity.get(pos);
+            if (entityToRemove != null) {
+                entityState.remove(entityToRemove);
+                usedPositions.remove(pos); // Keep usedPositions in sync
+            }
+        }
+
+        // Add/update light blocks
+        for (Map.Entry<BlockPos, Integer> entry : update.toAdd().entrySet()) {
+            BlockPos idealPos = entry.getKey();
+            int lightLevel = entry.getValue();
+
+            if (!idealPos.worldName().equals(worldName)) {
+                continue;
+            }
+
+            // Find which entity this position corresponds to (O(1) lookup)
+            UUID entityId = positionToEntity.get(idealPos);
+            if (entityId == null) {
+                continue;
+            }
+
+            LightSnapshot source = sourceMap.get(entityId);
+            if (source == null) {
+                continue; // Safety check
+            }
+            EntityLightConfig entityConfig = config.getEntityConfig(source.entityType());
+
+            // Try to place at the ideal position or find nearby valid spot
+            BlockPos placedPos = tryPlaceLight(player, world, idealPos, entityConfig, lightLevel, usedPositions);
+            if (placedPos != null) {
+                usedPositions.add(placedPos);
+                entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
+            }
+        }
+    }
+
+
+    /**
+     * Try to place a light block at or near the given position.
+     * Returns the position where light was placed, or null if no valid position.
+     */
+    private BlockPos tryPlaceLight(Player player, World world, BlockPos idealPos,
+                                   EntityLightConfig entityConfig, int lightLevel,
+                                   Set<BlockPos> usedPositions) {
+        // Validate light level bounds (1-15)
+        if (lightLevel < 1 || lightLevel > 15) {
+            return null;
+        }
+
+        // Fast path: check ideal position first (most common success case)
+        if (!usedPositions.contains(idealPos) && canPlaceLight(world, idealPos)) {
+            Location loc = new Location(world, idealPos.x(), idealPos.y(), idealPos.z());
+            player.sendBlockChange(loc, lightLevels[lightLevel]);
+            return idealPos;
+        }
+
+        // Slower path: iterate through offset positions
+        List<Offset> offsets = getOffsets(entityConfig.horizontalRadius(), entityConfig.height());
+
+        for (Offset o : offsets) {
+            // Skip (0,0,0) since we already checked ideal position
+            if (o.dx == 0 && o.dy == 0 && o.dz == 0) {
+                continue;
+            }
+
+            BlockPos tryPos = new BlockPos(
+                    idealPos.worldName(),
+                    idealPos.x() + o.dx,
+                    idealPos.y() + o.dy,
+                    idealPos.z() + o.dz
+            );
+
+            if (!usedPositions.contains(tryPos) && canPlaceLight(world, tryPos)) {
+                Location loc = new Location(world, tryPos.x(), tryPos.y(), tryPos.z());
+                player.sendBlockChange(loc, lightLevels[lightLevel]);
+                return tryPos;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean canPlaceLight(World world, BlockPos pos) {
+        Material type = world.getBlockAt(pos.x(), pos.y(), pos.z()).getType();
         return type == Material.AIR || type == Material.CAVE_AIR || type == Material.WATER;
     }
 
@@ -142,21 +380,29 @@ public class LightRenderer implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             clearPlayer(player);
         }
-        sentBlocks.clear();
+        playerEntityState.clear();
     }
 
     private void clearPlayer(Player player) {
-        Set<Location> blocks = sentBlocks.remove(player.getUniqueId());
-        if (blocks != null) {
-            for (Location loc : blocks) {
-                player.sendBlockChange(loc, loc.getBlock().getBlockData());
+        UUID playerId = player.getUniqueId();
+        Map<UUID, PlacedLight> entityState = playerEntityState.remove(playerId);
+
+        if (entityState != null && player.isOnline()) {
+            World world = player.getWorld();
+            String worldName = world.getName();
+
+            for (PlacedLight placed : entityState.values()) {
+                if (placed.pos().worldName().equals(worldName)) {
+                    Location loc = new Location(world, placed.pos().x(), placed.pos().y(), placed.pos().z());
+                    player.sendBlockChange(loc, loc.getBlock().getBlockData());
+                }
             }
         }
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        sentBlocks.remove(event.getPlayer().getUniqueId());
+        playerEntityState.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler

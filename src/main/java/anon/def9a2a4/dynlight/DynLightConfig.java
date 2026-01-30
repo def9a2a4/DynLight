@@ -1,5 +1,6 @@
 package anon.def9a2a4.dynlight;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -16,6 +17,7 @@ public class DynLightConfig {
 
     public final int updateInterval;
     public final int renderDistance;
+    public final int fireSweepInterval;
 
     // Detection toggles
     public final boolean heldItemsEnabled;
@@ -38,9 +40,14 @@ public class DynLightConfig {
     private final Map<EntityType, EntityLightConfig> entityConfigs;
 
     public DynLightConfig(FileConfiguration config) {
-        // General settings
-        this.updateInterval = config.getInt("update-interval", 4);
-        this.renderDistance = config.getInt("render-distance", 64);
+        // General settings (with bounds validation)
+        int rawInterval = config.getInt("update-interval", 4);
+        if (rawInterval < 1) {
+            Bukkit.getLogger().warning("[DynLight] update-interval value " + rawInterval + " is below minimum, using 1");
+        }
+        this.updateInterval = Math.max(1, rawInterval);
+        this.renderDistance = clampWithWarning(config.getInt("render-distance", 64), 8, 256, "render-distance");
+        this.fireSweepInterval = clampWithWarning(config.getInt("fire-sweep-interval", 10), 1, 100, "fire-sweep-interval");
 
         // Detection toggles
         this.heldItemsEnabled = config.getBoolean("detection.held-items", true);
@@ -51,9 +58,9 @@ public class DynLightConfig {
         this.enchantedItemsEnabled = config.getBoolean("detection.enchanted-items", true);
         this.alwaysLitEntitiesEnabled = config.getBoolean("detection.always-lit-entities", true);
 
-        // Light levels for player equipment
-        this.enchantedArmorLightLevel = config.getInt("light-levels.enchanted-armor", 10);
-        this.enchantedItemsLightLevel = config.getInt("light-levels.enchanted-items", 8);
+        // Light levels for player equipment (clamped to 0-15)
+        this.enchantedArmorLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-armor", 10), 0, 15, "light-levels.enchanted-armor");
+        this.enchantedItemsLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-items", 8), 0, 15, "light-levels.enchanted-items");
 
         // Item light levels
         this.itemLightLevels = loadItemLightLevels(config);
@@ -61,7 +68,8 @@ public class DynLightConfig {
         // Entity configurations
         this.defaultEntityConfig = loadEntityConfig(
                 config.getConfigurationSection("entities.default"),
-                EntityLightConfig.DEFAULT
+                EntityLightConfig.DEFAULT,
+                "default"
         );
         this.entityConfigs = loadEntityConfigs(config);
     }
@@ -77,9 +85,11 @@ public class DynLightConfig {
                     int level = items.getInt(key);
                     if (level > 0 && level <= 15) {
                         levels.put(material, level);
+                    } else {
+                        Bukkit.getLogger().warning("[DynLight] Item " + key + " has invalid light level: " + level + " (must be 1-15)");
                     }
-                } catch (IllegalArgumentException ignored) {
-                    // Invalid material name, skip
+                } catch (IllegalArgumentException e) {
+                    Bukkit.getLogger().warning("[DynLight] Invalid material in config: " + key);
                 }
             }
         }
@@ -87,14 +97,16 @@ public class DynLightConfig {
         return levels;
     }
 
-    private EntityLightConfig loadEntityConfig(ConfigurationSection section, EntityLightConfig fallback) {
+    private EntityLightConfig loadEntityConfig(ConfigurationSection section, EntityLightConfig fallback, String entityKey) {
         if (section == null) {
             return fallback;
         }
-        int baseLight = section.getInt("base-light", fallback.baseLight());
-        int fireLight = section.getInt("fire-light", fallback.fireLight());
-        int horizontalRadius = section.getInt("horizontal-radius", fallback.horizontalRadius());
-        int height = section.getInt("height", fallback.height());
+        // Clamp values to valid ranges
+        String prefix = "entities." + entityKey + ".";
+        int baseLight = clampWithWarning(section.getInt("base-light", fallback.baseLight()), 0, 15, prefix + "base-light");
+        int fireLight = clampWithWarning(section.getInt("fire-light", fallback.fireLight()), 0, 15, prefix + "fire-light");
+        int horizontalRadius = clampWithWarning(section.getInt("horizontal-radius", fallback.horizontalRadius()), 0, 5, prefix + "horizontal-radius");
+        int height = clampWithWarning(section.getInt("height", fallback.height()), 1, 10, prefix + "height");
         return new EntityLightConfig(baseLight, fireLight, horizontalRadius, height);
     }
 
@@ -109,10 +121,10 @@ public class DynLightConfig {
                     EntityType type = EntityType.valueOf(key.toUpperCase());
                     ConfigurationSection entitySection = entitiesSection.getConfigurationSection(key);
                     if (entitySection != null) {
-                        configs.put(type, loadEntityConfig(entitySection, defaultEntityConfig));
+                        configs.put(type, loadEntityConfig(entitySection, defaultEntityConfig, key));
                     }
-                } catch (IllegalArgumentException ignored) {
-                    // Invalid entity type, skip
+                } catch (IllegalArgumentException e) {
+                    Bukkit.getLogger().warning("[DynLight] Invalid entity type in config: " + key);
                 }
             }
         }
@@ -122,5 +134,17 @@ public class DynLightConfig {
 
     public EntityLightConfig getEntityConfig(EntityType entityType) {
         return entityConfigs.getOrDefault(entityType, defaultEntityConfig);
+    }
+
+    private int clampWithWarning(int value, int min, int max, String configKey) {
+        if (value < min) {
+            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " is below minimum, using " + min);
+            return min;
+        }
+        if (value > max) {
+            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " exceeds maximum, using " + max);
+            return max;
+        }
+        return value;
     }
 }

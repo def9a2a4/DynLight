@@ -19,17 +19,4 @@ public record EntityLightConfig(
      * base-light=0, fire-light=8, horizontal-radius=1, height=2
      */
     public static final EntityLightConfig DEFAULT = new EntityLightConfig(0, 8, 1, 2);
-
-    /**
-     * Get the effective light level for this entity.
-     *
-     * @param isOnFire whether the entity is currently on fire
-     * @return the light level to emit (0 if none)
-     */
-    public int getEffectiveLight(boolean isOnFire) {
-        if (isOnFire) {
-            return Math.max(baseLight, fireLight);
-        }
-        return baseLight;
-    }
 }

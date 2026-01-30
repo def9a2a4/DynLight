@@ -1,10 +1,13 @@
 # DynLight configuration
 
 # Update interval in ticks (20 ticks = 1 second)
-update-interval: 20
+update-interval: 1
 
 # Maximum distance to render dynamic lights (blocks)
 render-distance: 96
+
+# How often to check for fire expiration on entities (ticks, 10 = 0.5 seconds)
+fire-sweep-interval: 10
 
 # Detection toggles
 detection:
@@ -54,6 +57,16 @@ items:
   BLAZE_ROD: 10
   BLAZE_POWDER: 6
   MAGMA_CREAM: 1
+  # Copper torches & lanterns (1.21.5+, ignored on older versions)
+  COPPER_TORCH: 14
+  COPPER_LANTERN: 15
+  EXPOSED_COPPER_LANTERN: 15
+  WEATHERED_COPPER_LANTERN: 15
+  OXIDIZED_COPPER_LANTERN: 15
+  WAXED_COPPER_LANTERN: 15
+  WAXED_EXPOSED_COPPER_LANTERN: 15
+  WAXED_WEATHERED_COPPER_LANTERN: 15
+  WAXED_OXIDIZED_COPPER_LANTERN: 15
 
 # Entity configuration
 # Defaults: base-light=0, fire-light=8, horizontal-radius=1, height=2

@@ -4,3 +4,14 @@ version: ${version}
 api-version: 1.21
 author: def9a2a4
 description: dynamic entity-based lights minecraft plugin
+
+commands:
+  dynlight:
+    description: DynLight admin commands
+    usage: /dynlight <reload|stats|debug>
+    permission: dynlight.admin
+
+permissions:
+  dynlight.admin:
+    description: Access to DynLight admin commands
+    default: op
