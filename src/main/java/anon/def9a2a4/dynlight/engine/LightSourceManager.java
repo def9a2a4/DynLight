@@ -9,9 +9,11 @@ import org.bukkit.entity.Entity;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -173,16 +175,23 @@ public class LightSourceManager implements DynLightAPI {
     public List<LightSnapshot> getApiSnapshots() {
         List<LightSnapshot> snapshots = new ArrayList<>();
 
-        for (Map.Entry<String, Map<UUID, Integer>> worldEntry : lightSourcesByWorld.entrySet()) {
-            String expectedWorld = worldEntry.getKey();
-            Map<UUID, Integer> worldSources = worldEntry.getValue();
+        // Snapshot the world keys first to avoid concurrent modification
+        Set<String> worlds = new HashSet<>(lightSourcesByWorld.keySet());
 
-            Iterator<Map.Entry<UUID, Integer>> it = worldSources.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<UUID, Integer> entry = it.next();
+        for (String expectedWorld : worlds) {
+            Map<UUID, Integer> worldSources = lightSourcesByWorld.get(expectedWorld);
+            if (worldSources == null) {
+                continue;
+            }
+
+            // Create defensive copy to avoid CME during iteration
+            Map<UUID, Integer> sourcesCopy = new HashMap<>(worldSources);
+
+            for (Map.Entry<UUID, Integer> entry : sourcesCopy.entrySet()) {
                 Entity entity = Bukkit.getEntity(entry.getKey());
                 if (entity == null || !entity.isValid()) {
-                    it.remove();
+                    // Remove stale entry from original map
+                    worldSources.remove(entry.getKey());
                     continue;
                 }
 
@@ -194,7 +203,7 @@ public class LightSourceManager implements DynLightAPI {
                 String actualWorld = world.getName();
                 if (!actualWorld.equals(expectedWorld)) {
                     // Entity moved to a different world - migrate the entry
-                    it.remove();
+                    worldSources.remove(entry.getKey());
                     lightSourcesByWorld
                             .computeIfAbsent(actualWorld, k -> new ConcurrentHashMap<>())
                             .put(entity.getUniqueId(), entry.getValue());
@@ -224,5 +233,26 @@ public class LightSourceManager implements DynLightAPI {
             }
         }
         return false;
+    }
+
+    /**
+     * Remove stale entries for entities that no longer exist.
+     * Called periodically independent of render cycle to prevent memory leaks.
+     *
+     * @return Number of stale entries removed
+     */
+    public int cleanup() {
+        int removed = 0;
+        for (Map<UUID, Integer> worldSources : lightSourcesByWorld.values()) {
+            Iterator<UUID> it = worldSources.keySet().iterator();
+            while (it.hasNext()) {
+                Entity entity = Bukkit.getEntity(it.next());
+                if (entity == null || !entity.isValid()) {
+                    it.remove();
+                    removed++;
+                }
+            }
+        }
+        return removed;
     }
 }

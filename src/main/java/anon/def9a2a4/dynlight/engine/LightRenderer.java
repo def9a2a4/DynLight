@@ -10,12 +10,14 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Light;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import io.papermc.paper.math.Position;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Renders dynamic lights to players using fake light blocks.
@@ -44,10 +45,10 @@ public class LightRenderer implements Listener {
     private final Map<Long, List<Offset>> offsetCache = new HashMap<>();
 
     // Per-player tracking: entityId -> placed light block position and level
-    private final Map<UUID, Map<UUID, PlacedLight>> playerEntityState = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<UUID, PlacedLight>> playerEntityState = new HashMap<>();
 
     private record Offset(int dx, int dy, int dz) {}
-    private record PlacedLight(BlockPos pos, int level) {}
+    public record PlacedLight(BlockPos pos, int level) {}
 
     // Static comparator to avoid allocation on each computeOffsets() call
     private static final Comparator<Offset> DISTANCE_COMPARATOR =
@@ -59,8 +60,9 @@ public class LightRenderer implements Listener {
         int renderDistance = config.renderDistance;
         this.maxDistanceSquared = (double) renderDistance * renderDistance;
 
-        // Pre-create BlockData for each light level
-        for (int i = 1; i <= 15; i++) {
+        // Pre-create BlockData for each light level (0-15)
+        // Light level 0 is technically "no light" but we initialize it to avoid NPE
+        for (int i = 0; i <= 15; i++) {
             Light light = (Light) Bukkit.createBlockData(Material.LIGHT);
             light.setLevel(i);
             lightLevels[i] = light;
@@ -91,7 +93,7 @@ public class LightRenderer implements Listener {
             offsets.add(new Offset(0, dy, 0));
         }
 
-        // Cardinal directions (no corners)
+        // Cardinal directions only (no diagonals - intentional design choice)
         for (int r = 1; r <= radius; r++) {
             for (int dy = 0; dy < height; dy++) {
                 offsets.add(new Offset(r, dy, 0));
@@ -179,7 +181,6 @@ public class LightRenderer implements Listener {
         int expectedSize = Math.max(previousState.size(), currentSources.size());
         Map<BlockPos, Integer> toAdd = new HashMap<>(expectedSize);
         Set<BlockPos> toRemove = new HashSet<>(previousState.size() / 4 + 1);
-        Map<BlockPos, Integer> newState = new HashMap<>(currentSources.size());
 
         // Track which previous entities we've seen (for single-pass removal detection)
         Set<UUID> seenPreviousEntities = new HashSet<>(previousState.size());
@@ -215,11 +216,8 @@ public class LightRenderer implements Listener {
                 } else if (oldPlacement.level() != source.lightLevel()) {
                     // Same position but light level changed - update in place
                     toAdd.put(oldPos, source.lightLevel());
-                    newState.put(oldPos, source.lightLevel());
-                } else {
-                    // Unchanged - keep existing
-                    newState.put(oldPos, oldPlacement.level());
                 }
+                // else: Unchanged - keep existing (no action needed)
             }
         }
 
@@ -233,7 +231,7 @@ public class LightRenderer implements Listener {
         // Don't remove positions that are being re-added
         toRemove.removeAll(toAdd.keySet());
 
-        return new PlayerLightUpdate(toAdd, toRemove, newState);
+        return new PlayerLightUpdate(toAdd, toRemove);
     }
 
     /**
@@ -277,7 +275,7 @@ public class LightRenderer implements Listener {
         String worldName = world.getName();
 
         // Get or create entity state map
-        Map<UUID, PlacedLight> entityState = playerEntityState.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<UUID, PlacedLight> entityState = playerEntityState.computeIfAbsent(playerId, k -> new HashMap<>());
 
         // Single-pass: build reverse lookup AND used positions set simultaneously
         Map<BlockPos, UUID> statePositionToEntity = new HashMap<>(entityState.size());
@@ -288,13 +286,16 @@ public class LightRenderer implements Listener {
             usedPositions.add(pos);
         }
 
-        // Remove old light blocks
+        // Collect all block changes for batch sending
+        Map<Position, BlockData> batchChanges = new HashMap<>();
+
+        // Collect removals (restore original blocks)
         for (BlockPos pos : update.toRemove()) {
             if (!pos.worldName().equals(worldName)) {
                 continue;
             }
             Location loc = new Location(world, pos.x(), pos.y(), pos.z());
-            player.sendBlockChange(loc, loc.getBlock().getBlockData());
+            batchChanges.put(Position.block(pos.x(), pos.y(), pos.z()), loc.getBlock().getBlockData());
 
             // Remove from entity state using O(1) lookup
             UUID entityToRemove = statePositionToEntity.get(pos);
@@ -304,12 +305,17 @@ public class LightRenderer implements Listener {
             }
         }
 
-        // Add/update light blocks
+        // Collect additions (find valid positions, add lights)
         for (Map.Entry<BlockPos, Integer> entry : update.toAdd().entrySet()) {
             BlockPos idealPos = entry.getKey();
             int lightLevel = entry.getValue();
 
             if (!idealPos.worldName().equals(worldName)) {
+                continue;
+            }
+
+            // Validate light level bounds (1-15)
+            if (lightLevel < 1 || lightLevel > 15) {
                 continue;
             }
 
@@ -325,32 +331,31 @@ public class LightRenderer implements Listener {
             }
             EntityLightConfig entityConfig = config.getEntityConfig(source.entityType());
 
-            // Try to place at the ideal position or find nearby valid spot
-            BlockPos placedPos = tryPlaceLight(player, world, idealPos, entityConfig, lightLevel, usedPositions);
+            // Find valid position for light placement
+            BlockPos placedPos = findLightPosition(world, idealPos, entityConfig, usedPositions);
             if (placedPos != null) {
+                batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightLevels[lightLevel]);
                 usedPositions.add(placedPos);
                 entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
             }
+        }
+
+        // Send all changes in one batch
+        if (!batchChanges.isEmpty()) {
+            player.sendMultiBlockChange(batchChanges);
         }
     }
 
 
     /**
-     * Try to place a light block at or near the given position.
-     * Returns the position where light was placed, or null if no valid position.
+     * Find a valid position to place a light block at or near the given position.
+     * Returns the position where light can be placed, or null if no valid position.
      */
-    private BlockPos tryPlaceLight(Player player, World world, BlockPos idealPos,
-                                   EntityLightConfig entityConfig, int lightLevel,
-                                   Set<BlockPos> usedPositions) {
-        // Validate light level bounds (1-15)
-        if (lightLevel < 1 || lightLevel > 15) {
-            return null;
-        }
-
+    private BlockPos findLightPosition(World world, BlockPos idealPos,
+                                       EntityLightConfig entityConfig,
+                                       Set<BlockPos> usedPositions) {
         // Fast path: check ideal position first (most common success case)
         if (!usedPositions.contains(idealPos) && canPlaceLight(world, idealPos)) {
-            Location loc = new Location(world, idealPos.x(), idealPos.y(), idealPos.z());
-            player.sendBlockChange(loc, lightLevels[lightLevel]);
             return idealPos;
         }
 
@@ -371,8 +376,6 @@ public class LightRenderer implements Listener {
             );
 
             if (!usedPositions.contains(tryPos) && canPlaceLight(world, tryPos)) {
-                Location loc = new Location(world, tryPos.x(), tryPos.y(), tryPos.z());
-                player.sendBlockChange(loc, lightLevels[lightLevel]);
                 return tryPos;
             }
         }
@@ -407,11 +410,20 @@ public class LightRenderer implements Listener {
             World world = player.getWorld();
             String worldName = world.getName();
 
+            Map<Position, BlockData> batchChanges = new HashMap<>(entityState.size());
+
             for (PlacedLight placed : entityState.values()) {
                 if (placed.pos().worldName().equals(worldName)) {
                     Location loc = new Location(world, placed.pos().x(), placed.pos().y(), placed.pos().z());
-                    player.sendBlockChange(loc, loc.getBlock().getBlockData());
+                    batchChanges.put(
+                        Position.block(placed.pos().x(), placed.pos().y(), placed.pos().z()),
+                        loc.getBlock().getBlockData()
+                    );
                 }
+            }
+
+            if (!batchChanges.isEmpty()) {
+                player.sendMultiBlockChange(batchChanges);
             }
         }
     }

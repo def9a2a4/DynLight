@@ -10,6 +10,7 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.ItemDespawnEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.Map;
 
@@ -29,7 +30,7 @@ public class ItemLightListener implements Listener {
         this.itemLightLevels = config.itemLightLevels;
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
         if (!config.droppedItemsEnabled) {
             return;
@@ -42,12 +43,12 @@ public class ItemLightListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onItemPickup(EntityPickupItemEvent event) {
         api.removeLightSource(event.getItem());
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onItemDespawn(ItemDespawnEvent event) {
         api.removeLightSource(event.getEntity());
     }
@@ -60,8 +61,12 @@ public class ItemLightListener implements Listener {
         }
 
         // Check for enchantments (weak glow)
-        if (config.enchantedItemsEnabled && !stack.getEnchantments().isEmpty()) {
-            return config.enchantedItemsLightLevel;
+        if (config.enchantedItemsEnabled) {
+            // Cache ItemMeta to avoid race condition between hasItemMeta() and getItemMeta()
+            ItemMeta meta = stack.getItemMeta();
+            if (meta != null && meta.hasEnchants()) {
+                return config.enchantedItemsLightLevel;
+            }
         }
 
         return 0;

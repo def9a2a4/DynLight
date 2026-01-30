@@ -27,7 +27,7 @@ public class EntityLightListener implements Listener {
         this.api = api;
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onEntitySpawn(EntitySpawnEvent event) {
         if (!config.alwaysLitEntitiesEnabled) {
             return;

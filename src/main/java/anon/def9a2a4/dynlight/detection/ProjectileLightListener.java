@@ -34,7 +34,7 @@ public class ProjectileLightListener implements Listener {
         this.api = api;
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onProjectileLaunch(ProjectileLaunchEvent event) {
         Projectile projectile = event.getEntity();
 
@@ -55,7 +55,7 @@ public class ProjectileLightListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onEntityCombust(EntityCombustEvent event) {
         if (!config.flamingArrowsEnabled) {
             return;

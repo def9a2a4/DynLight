@@ -6,6 +6,7 @@ import anon.def9a2a4.dynlight.detection.EntityLightListener;
 import anon.def9a2a4.dynlight.detection.ItemLightListener;
 import anon.def9a2a4.dynlight.detection.PlayerLightDetector;
 import anon.def9a2a4.dynlight.detection.ProjectileLightListener;
+import anon.def9a2a4.dynlight.detection.cache.PlayerEquipmentCache;
 import anon.def9a2a4.dynlight.engine.LightRenderer;
 import anon.def9a2a4.dynlight.engine.LightSourceManager;
 import anon.def9a2a4.dynlight.engine.PlayerPreferences;
@@ -26,7 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DynLightPlugin extends JavaPlugin {
@@ -38,16 +38,17 @@ public class DynLightPlugin extends JavaPlugin {
     private LightRenderer renderer;
     private PlayerLightDetector playerDetector;
     private PlayerPreferences playerPreferences;
+    private PlayerEquipmentCache equipmentCache;
     private BurningEntityListener burningEntityListener;
     private ProjectileLightListener projectileLightListener;
     private BukkitTask updateTask;
     private BukkitTask fireSweepTask;
+    private BukkitTask cleanupTask;
 
-    // Pending updates computed by async thread, to be applied on next sync tick
-    private final AtomicReference<ComputedUpdate> pendingUpdate = new AtomicReference<>();
-
-    // Flag to prevent async task overlap when computation is slow
-    private final AtomicBoolean asyncRunning = new AtomicBoolean(false);
+    // Async state: null = idle, COMPUTING = async in progress, ComputedUpdate = result ready
+    // Using a single atomic eliminates race conditions between separate flags
+    private final AtomicReference<Object> asyncState = new AtomicReference<>();
+    private static final Object COMPUTING = new Object();
 
     // Holds the computed updates and the source data needed for application
     private record ComputedUpdate(
@@ -65,7 +66,8 @@ public class DynLightPlugin extends JavaPlugin {
         this.sourceManager = new LightSourceManager();
         this.playerPreferences = new PlayerPreferences(this);
         this.renderer = new LightRenderer(config, playerPreferences);
-        this.playerDetector = new PlayerLightDetector(config);
+        this.equipmentCache = new PlayerEquipmentCache(this);
+        this.playerDetector = new PlayerLightDetector(config, equipmentCache);
 
         // Create event listeners (pass sourceManager which implements DynLightAPI)
         this.burningEntityListener = new BurningEntityListener(config, sourceManager);
@@ -73,6 +75,7 @@ public class DynLightPlugin extends JavaPlugin {
 
         // Register event listeners
         getServer().getPluginManager().registerEvents(renderer, this);
+        getServer().getPluginManager().registerEvents(equipmentCache, this);
         getServer().getPluginManager().registerEvents(new ItemLightListener(config, sourceManager), this);
         getServer().getPluginManager().registerEvents(new EntityLightListener(config, sourceManager), this);
         getServer().getPluginManager().registerEvents(burningEntityListener, this);
@@ -84,6 +87,14 @@ public class DynLightPlugin extends JavaPlugin {
             burningEntityListener.checkFireExpiration();
             projectileLightListener.checkFireExpiration();
         }, fireSweepInterval, fireSweepInterval);
+
+        // Periodic cleanup task to remove stale light sources (every 200 ticks = 10 seconds)
+        cleanupTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+            int removed = sourceManager.cleanup();
+            if (removed > 0) {
+                getLogger().fine("Cleaned up " + removed + " stale light sources");
+            }
+        }, 200L, 200L);
 
         // Start update loop with async/sync coordination
         updateTask = new BukkitRunnable() {
@@ -115,19 +126,22 @@ public class DynLightPlugin extends JavaPlugin {
      */
     private void onSyncTick() {
         try {
-            // 1. Apply pending updates from last async cycle
-            ComputedUpdate computed = pendingUpdate.getAndSet(null);
-            if (computed != null) {
-                renderer.applyUpdates(computed.updates(), computed.lightSources());
+            // 1. Check for and apply pending result from async computation
+            Object state = asyncState.get();
+            if (state instanceof ComputedUpdate computed) {
+                // Atomically clear the result and apply it
+                if (asyncState.compareAndSet(computed, null)) {
+                    renderer.applyUpdates(computed.updates(), computed.lightSources());
+                }
+                // If CAS failed, another tick is handling it - we'll try again next tick
             }
 
-            // Skip if previous async task is still running (prevents task queue buildup)
-            // Use compareAndSet for atomic check-and-set semantics
-            if (!asyncRunning.compareAndSet(false, true)) {
-                return;
+            // 2. Try to start new async computation (only if idle)
+            if (!asyncState.compareAndSet(null, COMPUTING)) {
+                return; // Either still computing or result pending - skip this tick
             }
 
-            // 2. Capture fresh snapshots on main thread
+            // 3. Capture fresh snapshots on main thread
             // Player lights are polled (no reliable events for held item changes)
             List<LightSnapshot> playerSnapshots = playerDetector.capturePlayerLights();
             // All other entities are event-driven and stored in sourceManager
@@ -139,24 +153,33 @@ public class DynLightPlugin extends JavaPlugin {
             // Capture player positions for distance calculations
             List<PlayerSnapshot> playerPositions = capturePlayerSnapshots();
 
-            // 3. Snapshot entity state BEFORE async (prevents race condition)
-            var stateSnapshot = renderer.snapshotEntityState();
+            // 4. Snapshot entity state BEFORE async (prevents race condition)
+            Map<UUID, Map<UUID, LightRenderer.PlacedLight>> stateSnapshot = renderer.snapshotEntityState();
 
-            // 4. Kick off async computation with the snapshot
+            // 5. Kick off async computation - result stored atomically when done
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
                     Map<UUID, PlayerLightUpdate> updates = renderer.computeUpdates(allSnapshots, playerPositions, stateSnapshot);
-                    pendingUpdate.set(new ComputedUpdate(updates, allSnapshots));
+                    // Single atomic set of result - no separate "running" flag needed
+                    asyncState.set(new ComputedUpdate(updates, allSnapshots));
                 } catch (Exception e) {
                     getLogger().severe("Error computing light updates: " + e.getMessage());
-                    e.printStackTrace();
-                } finally {
-                    asyncRunning.set(false);
+                    getLogger().severe(e.toString());
+                    for (StackTraceElement element : e.getStackTrace()) {
+                        getLogger().severe("  at " + element);
+                    }
+                    // Set empty result to unblock next computation
+                    asyncState.set(new ComputedUpdate(new java.util.HashMap<>(), new ArrayList<>()));
                 }
             });
         } catch (Exception e) {
             getLogger().severe("Error in light update cycle: " + e.getMessage());
-            e.printStackTrace();
+            getLogger().severe(e.toString());
+            for (StackTraceElement element : e.getStackTrace()) {
+                getLogger().severe("  at " + element);
+            }
+            // Reset state to allow recovery on next tick
+            asyncState.set(null);
         }
     }
 
@@ -218,11 +241,38 @@ public class DynLightPlugin extends JavaPlugin {
      * Called by /dynlight reload command.
      */
     private void reloadConfiguration() {
+        // Wait for any in-flight async computation to complete
+        int waitAttempts = 0;
+        while (asyncState.get() == COMPUTING && waitAttempts < 100) {
+            try {
+                Thread.sleep(5);
+                waitAttempts++;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                getLogger().warning("Reload interrupted while waiting for async task");
+                return;
+            }
+        }
+        if (asyncState.get() == COMPUTING) {
+            getLogger().warning("Async task still running after timeout, proceeding with reload anyway");
+        }
+
         reloadConfig();
         this.config = new DynLightConfig(getConfig());
         // Update renderer with new config (for render distance changes)
         this.renderer.updateConfig(config);
-        this.playerDetector = new PlayerLightDetector(config);
+        this.playerDetector = new PlayerLightDetector(config, equipmentCache);
+
+        // Reschedule update task with new interval
+        if (updateTask != null) {
+            updateTask.cancel();
+        }
+        updateTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                onSyncTick();
+            }
+        }.runTaskTimer(this, 0L, config.updateInterval);
 
         // Reschedule fire sweep task with new interval
         if (fireSweepTask != null) {
@@ -240,6 +290,9 @@ public class DynLightPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         // Stop scheduled tasks
+        if (cleanupTask != null) {
+            cleanupTask.cancel();
+        }
         if (fireSweepTask != null) {
             fireSweepTask.cancel();
         }

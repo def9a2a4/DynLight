@@ -12,6 +12,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntitySpawnEvent;
+import org.bukkit.event.world.ChunkUnloadEvent;
 
 import java.util.Iterator;
 import java.util.Set;
@@ -33,7 +34,7 @@ public class BurningEntityListener implements Listener {
         this.api = api;
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onEntityCombust(EntityCombustEvent event) {
         if (!config.burningEntitiesEnabled) {
             return;
@@ -49,7 +50,7 @@ public class BurningEntityListener implements Listener {
         trackBurningEntity(entity);
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onEntitySpawn(EntitySpawnEvent event) {
         if (!config.burningEntitiesEnabled) {
             return;
@@ -73,6 +74,14 @@ public class BurningEntityListener implements Listener {
         UUID entityId = event.getEntity().getUniqueId();
         burningEntities.remove(entityId);
         // Note: EntityLightListener handles removal from sourceManager
+    }
+
+    @EventHandler
+    public void onChunkUnload(ChunkUnloadEvent event) {
+        // Clean up entities when their chunk unloads to prevent memory leak
+        for (Entity entity : event.getChunk().getEntities()) {
+            burningEntities.remove(entity.getUniqueId());
+        }
     }
 
     private void trackBurningEntity(Entity entity) {

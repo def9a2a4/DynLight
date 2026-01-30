@@ -2,6 +2,7 @@ package anon.def9a2a4.dynlight.detection;
 
 import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.detection.cache.PlayerEquipmentCache;
 import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
 import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import org.bukkit.Bukkit;
@@ -10,6 +11,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,15 +21,18 @@ import java.util.Map;
 /**
  * Detects player light sources: held items, enchanted items, enchanted armor, fire.
  * Players are still polled each tick since there's no reliable event for held item changes.
+ * Enchanted armor state is cached via PlayerEquipmentCache to reduce enchantment checks.
  */
 public class PlayerLightDetector {
 
     private final DynLightConfig config;
     private final Map<Material, Integer> itemLightLevels;
+    private final PlayerEquipmentCache equipmentCache;
 
-    public PlayerLightDetector(DynLightConfig config) {
+    public PlayerLightDetector(DynLightConfig config, PlayerEquipmentCache equipmentCache) {
         this.config = config;
         this.itemLightLevels = config.itemLightLevels;
+        this.equipmentCache = equipmentCache;
     }
 
     /**
@@ -90,6 +95,7 @@ public class PlayerLightDetector {
     /**
      * Single-pass inventory check for held items and armor.
      * Gets inventory once and checks all relevant slots.
+     * Armor enchantment state is retrieved from cache (updated on inventory events).
      */
     private int getInventoryLight(Player player) {
         PlayerInventory inv = player.getInventory();
@@ -101,14 +107,9 @@ public class PlayerLightDetector {
             level = Math.max(level, getItemLight(inv.getItemInOffHand()));
         }
 
-        // Check armor for enchantments (short-circuit on first match)
-        if (config.enchantedArmorEnabled) {
-            if (isEnchanted(inv.getHelmet())
-                    || isEnchanted(inv.getChestplate())
-                    || isEnchanted(inv.getLeggings())
-                    || isEnchanted(inv.getBoots())) {
-                level = Math.max(level, config.enchantedArmorLightLevel);
-            }
+        // Check armor for enchantments (cached - no per-tick enchantment checks)
+        if (config.enchantedArmorEnabled && equipmentCache.hasEnchantedArmor(player.getUniqueId())) {
+            level = Math.max(level, config.enchantedArmorLightLevel);
         }
 
         return level;
@@ -127,16 +128,14 @@ public class PlayerLightDetector {
         }
 
         // Light from enchantments (if item is enchanted)
-        // Use hasItemMeta() first - cheaper than getEnchantments() which allocates a Map
-        if (config.enchantedItemsEnabled && item.hasItemMeta() && item.getItemMeta().hasEnchants()) {
-            level = Math.max(level, config.enchantedItemsLightLevel);
+        if (config.enchantedItemsEnabled) {
+            // Cache ItemMeta to avoid race condition between hasItemMeta() and getItemMeta()
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && meta.hasEnchants()) {
+                level = Math.max(level, config.enchantedItemsLightLevel);
+            }
         }
 
         return level;
-    }
-
-    private boolean isEnchanted(ItemStack item) {
-        // Use hasItemMeta() first - cheaper than getEnchantments() which allocates a Map
-        return item != null && item.hasItemMeta() && item.getItemMeta().hasEnchants();
     }
 }

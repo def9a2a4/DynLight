@@ -6,6 +6,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.EntityType;
 
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -94,7 +95,8 @@ public class DynLightConfig {
             }
         }
 
-        return levels;
+        // Wrap in unmodifiable to prevent external modification
+        return Collections.unmodifiableMap(levels);
     }
 
     private EntityLightConfig loadEntityConfig(ConfigurationSection section, EntityLightConfig fallback, String entityKey) {
@@ -129,7 +131,8 @@ public class DynLightConfig {
             }
         }
 
-        return configs;
+        // Wrap in unmodifiable to prevent external modification
+        return Collections.unmodifiableMap(configs);
     }
 
     public EntityLightConfig getEntityConfig(EntityType entityType) {
