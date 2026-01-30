@@ -3,6 +3,8 @@ package anon.def9a2a4.dynlight.detection;
 import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.EntityLightConfig;
 import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.api.EntityLightDetector;
+import anon.def9a2a4.dynlight.api.LightSourceInfo;
 import anon.def9a2a4.dynlight.detection.util.EntityFilters;
 import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
 import org.bukkit.entity.Entity;
@@ -21,8 +23,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Event-driven listener for burning entities.
  * Tracks entities when they catch fire and uses a periodic sweep to detect fire expiration.
+ * Also provides a detector for chunk-load scanning.
  */
-public class BurningEntityListener implements Listener {
+public class BurningEntityListener implements Listener, EntityLightDetector {
 
     private final DynLightConfig config;
     private final DynLightAPI api;
@@ -32,40 +35,58 @@ public class BurningEntityListener implements Listener {
     public BurningEntityListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
         this.api = api;
+        // Register this listener as a detector for chunk-load scanning
+        api.registerDetector(this);
+    }
+
+    @Override
+    public LightSourceInfo detect(Entity entity) {
+        if (!config.burningEntitiesEnabled) {
+            return null;
+        }
+
+        // Skip players, items, and projectiles
+        if (EntityFilters.shouldSkipForBurning(entity)) {
+            return null;
+        }
+
+        if (!FireStateUtil.isOnFire(entity)) {
+            return null;
+        }
+
+        EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
+        int fireLight = entityConfig.fireLight();
+        if (fireLight <= 0) {
+            return null;
+        }
+
+        // Track for fire expiration handling
+        if (!burningEntities.containsKey(entity.getUniqueId())) {
+            burningEntities.put(entity.getUniqueId(), entity);
+        }
+
+        return LightSourceInfo.of(fireLight, entityConfig.horizontalRadius(), entityConfig.height());
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onEntityCombust(EntityCombustEvent event) {
-        if (!config.burningEntitiesEnabled) {
-            return;
+        // Use detector for immediate registration on combust
+        LightSourceInfo info = detect(event.getEntity());
+        if (info != null) {
+            // Update light level (fire light is typically higher than base light)
+            int currentLevel = api.getLightLevel(event.getEntity());
+            if (info.lightLevel() > currentLevel) {
+                api.addLightSource(event.getEntity(), info);
+            }
         }
-
-        Entity entity = event.getEntity();
-
-        // Skip players (handled by PlayerLightDetector), items, and projectiles
-        if (EntityFilters.shouldSkipForBurning(entity)) {
-            return;
-        }
-
-        trackBurningEntity(entity);
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onEntitySpawn(EntitySpawnEvent event) {
-        if (!config.burningEntitiesEnabled) {
-            return;
-        }
-
-        Entity entity = event.getEntity();
-
-        // Skip players, items, and projectiles
-        if (EntityFilters.shouldSkipForBurning(entity)) {
-            return;
-        }
-
-        // Check if entity spawns already on fire
-        if (FireStateUtil.isOnFire(entity)) {
-            trackBurningEntity(entity);
+        // Use detector for immediate registration on spawn (if already on fire)
+        LightSourceInfo info = detect(event.getEntity());
+        if (info != null) {
+            api.addLightSource(event.getEntity(), info);
         }
     }
 
@@ -80,19 +101,6 @@ public class BurningEntityListener implements Listener {
         // Clean up entities when their chunk unloads to prevent memory leak
         for (Entity entity : event.getChunk().getEntities()) {
             burningEntities.remove(entity.getUniqueId());
-        }
-    }
-
-    private void trackBurningEntity(Entity entity) {
-        EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
-        int fireLight = entityConfig.fireLight();
-
-        burningEntities.put(entity.getUniqueId(), entity);
-
-        // Update light level (fire light is typically higher than base light)
-        int currentLevel = api.getLightLevel(entity);
-        if (fireLight > currentLevel) {
-            api.updateLightLevel(entity, fireLight);
         }
     }
 

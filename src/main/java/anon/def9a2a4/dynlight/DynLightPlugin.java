@@ -2,11 +2,13 @@ package anon.def9a2a4.dynlight;
 
 import anon.def9a2a4.dynlight.api.DynLightAPI;
 import anon.def9a2a4.dynlight.detection.BurningEntityListener;
+import anon.def9a2a4.dynlight.detection.ChunkLoadListener;
 import anon.def9a2a4.dynlight.detection.EntityLightListener;
 import anon.def9a2a4.dynlight.detection.ItemLightListener;
 import anon.def9a2a4.dynlight.detection.PlayerLightDetector;
 import anon.def9a2a4.dynlight.detection.ProjectileLightListener;
 import anon.def9a2a4.dynlight.detection.cache.PlayerEquipmentCache;
+import anon.def9a2a4.dynlight.engine.InvalidationTracker;
 import anon.def9a2a4.dynlight.engine.LightRenderer;
 import anon.def9a2a4.dynlight.engine.LightSourceManager;
 import anon.def9a2a4.dynlight.engine.PlayerPreferences;
@@ -45,6 +47,9 @@ public class DynLightPlugin extends JavaPlugin {
     private BukkitTask fireSweepTask;
     private BukkitTask cleanupTask;
 
+    // Tracks invalidated light sources to prevent stale async results from re-adding removed lights
+    private final InvalidationTracker invalidationTracker = new InvalidationTracker();
+
     // Async state: null = idle, COMPUTING = async in progress, ComputedUpdate = result ready
     // Using a single atomic eliminates race conditions between separate flags
     private final AtomicReference<Object> asyncState = new AtomicReference<>();
@@ -56,7 +61,8 @@ public class DynLightPlugin extends JavaPlugin {
     // Holds the computed updates and the source data needed for application
     private record ComputedUpdate(
             Map<UUID, PlayerLightUpdate> updates,
-            List<LightSnapshot> lightSources
+            List<LightSnapshot> lightSources,
+            long generation
     ) {}
 
     @Override
@@ -73,8 +79,9 @@ public class DynLightPlugin extends JavaPlugin {
         this.playerDetector = new PlayerLightDetector(config, equipmentCache);
 
         // Create event listeners (pass sourceManager which implements DynLightAPI)
+        // Each listener registers itself as a detector for chunk-load scanning
         this.burningEntityListener = new BurningEntityListener(config, sourceManager);
-        this.projectileLightListener = new ProjectileLightListener(config, sourceManager);
+        this.projectileLightListener = new ProjectileLightListener(config, sourceManager, renderer, invalidationTracker);
 
         // Register event listeners
         getServer().getPluginManager().registerEvents(renderer, this);
@@ -83,6 +90,8 @@ public class DynLightPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new EntityLightListener(config, sourceManager), this);
         getServer().getPluginManager().registerEvents(burningEntityListener, this);
         getServer().getPluginManager().registerEvents(projectileLightListener, this);
+        // Centralized chunk load handler - scans entities using registered detectors
+        getServer().getPluginManager().registerEvents(new ChunkLoadListener(sourceManager), this);
 
         // Start consolidated fire sweep task
         long fireSweepInterval = config.fireSweepInterval;
@@ -135,7 +144,9 @@ public class DynLightPlugin extends JavaPlugin {
             if (state instanceof ComputedUpdate computed) {
                 // Atomically clear the result and apply it
                 if (asyncState.compareAndSet(computed, null)) {
-                    renderer.applyUpdates(computed.updates(), computed.lightSources());
+                    // Pass invalidation tracker and generation to filter out stale sources
+                    renderer.applyUpdates(computed.updates(), computed.lightSources(),
+                                          invalidationTracker, computed.generation());
                 }
                 // If CAS failed, another tick is handling it - we'll try again next tick
             }
@@ -145,27 +156,42 @@ public class DynLightPlugin extends JavaPlugin {
                 return; // Either still computing or result pending - skip this tick
             }
 
-            // 3. Capture fresh snapshots on main thread
+            // 3. Start a new generation for invalidation tracking
+            long generation = invalidationTracker.startGeneration();
+
+            // 4. Capture fresh snapshots on main thread
             // Player lights are polled (no reliable events for held item changes)
             List<LightSnapshot> playerSnapshots = playerDetector.capturePlayerLights();
             // All other entities are event-driven and stored in sourceManager
             List<LightSnapshot> entitySnapshots = sourceManager.getApiSnapshots();
 
+            // Update projectile position history and get trail snapshots (only if trails enabled)
+            List<LightSnapshot> trailSnapshots;
+            if (config.projectileTrailLength > 0) {
+                projectileLightListener.updatePositionHistory();
+                trailSnapshots = projectileLightListener.getTrailSnapshots();
+            } else {
+                trailSnapshots = List.of();
+            }
+
             // Merge player snapshots with entity snapshots (player takes priority if both exist)
             List<LightSnapshot> allSnapshots = mergeSnapshots(playerSnapshots, entitySnapshots);
+            // Add trail snapshots (no priority conflicts since they use synthetic UUIDs)
+            allSnapshots.addAll(trailSnapshots);
 
             // Capture player positions for distance calculations
             List<PlayerSnapshot> playerPositions = capturePlayerSnapshots();
 
-            // 4. Snapshot entity state BEFORE async (prevents race condition)
+            // 5. Snapshot entity state BEFORE async (prevents race condition)
             Map<UUID, Map<UUID, LightRenderer.PlacedLight>> stateSnapshot = renderer.snapshotEntityState();
 
-            // 5. Kick off async computation - result stored atomically when done
+            // 6. Kick off async computation - result stored atomically when done
+            final long gen = generation;
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
                     Map<UUID, PlayerLightUpdate> updates = renderer.computeUpdates(allSnapshots, playerPositions, stateSnapshot);
                     // Single atomic set of result - no separate "running" flag needed
-                    asyncState.set(new ComputedUpdate(updates, allSnapshots));
+                    asyncState.set(new ComputedUpdate(updates, allSnapshots, gen));
                 } catch (Exception e) {
                     getLogger().severe("Error computing light updates: " + e.getMessage());
                     getLogger().severe(e.toString());
@@ -173,7 +199,7 @@ public class DynLightPlugin extends JavaPlugin {
                         getLogger().severe("  at " + element);
                     }
                     // Set empty result to unblock next computation
-                    asyncState.set(new ComputedUpdate(new java.util.HashMap<>(), new ArrayList<>()));
+                    asyncState.set(new ComputedUpdate(new java.util.HashMap<>(), new ArrayList<>(), gen));
                 }
             });
         } catch (Exception e) {
@@ -254,6 +280,11 @@ public class DynLightPlugin extends JavaPlugin {
         // Update renderer with new config (for render distance changes)
         this.renderer.updateConfig(config);
         this.playerDetector = new PlayerLightDetector(config, equipmentCache);
+
+        // Clear trail history if trails are now disabled
+        if (config.projectileTrailLength <= 0) {
+            projectileLightListener.clearPositionHistory();
+        }
 
         // Reschedule update task with new interval
         if (updateTask != null) {

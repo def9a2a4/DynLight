@@ -33,6 +33,10 @@ public class DynLightConfig {
     public final int enchantedArmorLightLevel;
     public final int enchantedItemsLightLevel;
 
+    // Projectile trail settings
+    public final int projectileTrailLength;
+    public final double projectileTrailSpacing;
+
     // Item light configurations
     public final Map<Material, ItemLightConfig> itemConfigs;
 
@@ -62,6 +66,10 @@ public class DynLightConfig {
         // Light levels for player equipment (clamped to 0-15)
         this.enchantedArmorLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-armor", 10), 0, 15, "light-levels.enchanted-armor");
         this.enchantedItemsLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-items", 8), 0, 15, "light-levels.enchanted-items");
+
+        // Projectile trail settings (0 = disabled)
+        this.projectileTrailLength = clampWithWarning(config.getInt("projectile-trail.length", 3), 0, 10, "projectile-trail.length");
+        this.projectileTrailSpacing = clampDoubleWithWarning(config.getDouble("projectile-trail.spacing", 1.0), 0.5, 5.0, "projectile-trail.spacing");
 
         // Item light configurations
         this.itemConfigs = loadItemConfigs(config);
@@ -181,6 +189,18 @@ public class DynLightConfig {
     }
 
     private int clampWithWarning(int value, int min, int max, String configKey) {
+        if (value < min) {
+            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " is below minimum, using " + min);
+            return min;
+        }
+        if (value > max) {
+            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " exceeds maximum, using " + max);
+            return max;
+        }
+        return value;
+    }
+
+    private double clampDoubleWithWarning(double value, double min, double max, String configKey) {
         if (value < min) {
             Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " is below minimum, using " + min);
             return min;

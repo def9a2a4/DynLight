@@ -71,4 +71,43 @@ public interface DynLightAPI {
      * @param entities The entities to stop emitting light
      */
     void removeLightSources(Collection<Entity> entities);
+
+    /**
+     * Register an entity as a light source with full configuration.
+     *
+     * @param entity The entity to emit light
+     * @param info   Light source configuration (level, radius, height)
+     */
+    void addLightSource(Entity entity, LightSourceInfo info);
+
+    /**
+     * Get full light info for entity.
+     *
+     * @param entity The entity to check
+     * @return Light info, or null if not a light source
+     */
+    LightSourceInfo getLightSourceInfo(Entity entity);
+
+    /**
+     * Register a detector that evaluates entities for light emission.
+     * Detectors are called when scanning entities (e.g., on chunk load).
+     *
+     * @param detector The detector to register
+     */
+    void registerDetector(EntityLightDetector detector);
+
+    /**
+     * Unregister a previously registered detector.
+     *
+     * @param detector The detector to unregister
+     */
+    void unregisterDetector(EntityLightDetector detector);
+
+    /**
+     * Scan a collection of entities using registered detectors
+     * and register any that should emit light.
+     *
+     * @param entities The entities to scan
+     */
+    void scanEntities(Collection<Entity> entities);
 }

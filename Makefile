@@ -8,6 +8,11 @@ build:
 clean:
 	gradle clean
 	rm -rf bin/
+	rm -rf .gradle/
+	rm -rf build/
+	rm -rf server/plugins/DynLight*.jar
+	rm -rf server/plugins/DynLight/
+
 
 .PHONY: server-clear-plugin-data
 server-clear-plugin-data:

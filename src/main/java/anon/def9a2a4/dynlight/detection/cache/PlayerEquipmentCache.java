@@ -123,7 +123,7 @@ public class PlayerEquipmentCache implements Listener {
         batchTask = null;
         for (UUID playerId : pendingUpdates) {
             Player player = plugin.getServer().getPlayer(playerId);
-            if (player != null && player.isOnline()) {
+            if (player != null) {
                 updatePlayer(player);
             }
         }

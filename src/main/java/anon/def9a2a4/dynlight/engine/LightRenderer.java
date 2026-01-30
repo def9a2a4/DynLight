@@ -1,7 +1,6 @@
 package anon.def9a2a4.dynlight.engine;
 
 import anon.def9a2a4.dynlight.DynLightConfig;
-import anon.def9a2a4.dynlight.EntityLightConfig;
 import anon.def9a2a4.dynlight.engine.data.BlockPos;
 import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import anon.def9a2a4.dynlight.engine.data.PlayerLightUpdate;
@@ -27,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Renders dynamic lights to players using fake light blocks.
@@ -48,7 +48,13 @@ public class LightRenderer implements Listener {
     // Per-player tracking: entityId -> placed light block position and level
     private final Map<UUID, Map<UUID, PlacedLight>> playerEntityState = new HashMap<>();
 
+    // Parent-child relationship tracking for light sources (e.g., projectile trails)
+    // Maps parent entityId -> set of child entityIds
+    // Used by clearChildLights() to remove all children when parent is removed
+    private final Map<UUID, Set<UUID>> parentToChildren = new ConcurrentHashMap<>();
+
     private record Offset(int dx, int dy, int dz) {}
+    private record LightPlacement(BlockPos pos, boolean isWater) {}
     public record PlacedLight(BlockPos pos, int level) {}
 
     // Static comparator to avoid allocation on each computeOffsets() call
@@ -246,20 +252,48 @@ public class LightRenderer implements Listener {
     /**
      * Apply computed updates to players. MAIN THREAD ONLY.
      * Sends block changes and updates internal state.
+     * Filters out invalidated sources to prevent stale async results from re-adding removed lights.
      *
      * @param updates      Map of player UUID to their computed updates
      * @param lightSources The original light sources (needed for entity config lookup)
+     * @param tracker      Invalidation tracker to filter stale sources
+     * @param generation   Snapshot generation for invalidation checking
      */
-    public void applyUpdates(Map<UUID, PlayerLightUpdate> updates, List<LightSnapshot> lightSources) {
-        // Build entity lookup maps (forward and reverse)
+    public void applyUpdates(Map<UUID, PlayerLightUpdate> updates, List<LightSnapshot> lightSources,
+                             InvalidationTracker tracker, long generation) {
+        // Build entity lookup maps (forward and reverse), filtering out invalidated sources
         Map<UUID, LightSnapshot> sourceMap = new HashMap<>();
         Map<BlockPos, UUID> positionToEntity = new HashMap<>();
+
+        // Build new parent-child mapping from snapshots
+        Map<UUID, Set<UUID>> newParentToChildren = new HashMap<>();
+
         for (LightSnapshot source : lightSources) {
+            // Check if this source or its parent is invalidated
+            UUID parentId = source.parentId();
+            if (parentId != null) {
+                // Child light - check if parent is invalidated
+                if (tracker.isInvalidated(parentId, generation)) {
+                    continue; // Skip this child, its parent was removed
+                }
+                // Track parent-child relationship
+                newParentToChildren.computeIfAbsent(parentId, k -> new HashSet<>()).add(source.entityId());
+            } else {
+                // Primary light - check if the entity itself is invalidated
+                if (tracker.isInvalidated(source.entityId(), generation)) {
+                    continue;
+                }
+            }
+
             sourceMap.put(source.entityId(), source);
             // Build reverse lookup: position -> entity UUID
             BlockPos pos = new BlockPos(source.worldName(), source.blockX(), source.blockY(), source.blockZ());
             positionToEntity.put(pos, source.entityId());
         }
+
+        // Update the parent-child tracking
+        parentToChildren.clear();
+        parentToChildren.putAll(newParentToChildren);
 
         for (Map.Entry<UUID, PlayerLightUpdate> entry : updates.entrySet()) {
             UUID playerId = entry.getKey();
@@ -338,13 +372,13 @@ public class LightRenderer implements Listener {
             if (source == null) {
                 continue; // Safety check
             }
-            EntityLightConfig entityConfig = config.getEntityConfig(source.entityType());
 
-            // Find valid position for light placement
-            BlockPos placedPos = findLightPosition(world, idealPos, entityConfig, usedPositions);
-            if (placedPos != null) {
-                Material targetMaterial = world.getBlockAt(placedPos.x(), placedPos.y(), placedPos.z()).getType();
-                Light lightData = (targetMaterial == Material.WATER) ? lightLevelsWaterlogged[lightLevel] : lightLevels[lightLevel];
+            // Find valid position for light placement using snapshot data
+            LightPlacement placement = findLightPosition(world, idealPos,
+                    source.horizontalRadius(), source.height(), usedPositions);
+            if (placement != null) {
+                BlockPos placedPos = placement.pos();
+                Light lightData = placement.isWater() ? lightLevelsWaterlogged[lightLevel] : lightLevels[lightLevel];
                 batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightData);
                 usedPositions.add(placedPos);
                 entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
@@ -360,20 +394,23 @@ public class LightRenderer implements Listener {
 
     /**
      * Find a valid position to place a light block at or near the given position.
-     * Returns the position where light can be placed, or null if no valid position.
+     * Returns the position and water status, or null if no valid position.
      */
-    private BlockPos findLightPosition(World world, BlockPos idealPos,
-                                       EntityLightConfig entityConfig,
-                                       Set<BlockPos> usedPositions) {
+    private LightPlacement findLightPosition(World world, BlockPos idealPos,
+                                              int horizontalRadius, int height,
+                                              Set<BlockPos> usedPositions) {
         // Fast path: check ideal position first (most common success case)
-        if (!usedPositions.contains(idealPos) && canPlaceLight(world, idealPos)) {
-            return idealPos;
+        if (!usedPositions.contains(idealPos)) {
+            Material type = world.getBlockAt(idealPos.x(), idealPos.y(), idealPos.z()).getType();
+            if (type == Material.AIR || type == Material.CAVE_AIR) {
+                return new LightPlacement(idealPos, false);
+            } else if (type == Material.WATER) {
+                return new LightPlacement(idealPos, true);
+            }
         }
 
         // Slower path: iterate through offset positions
-        // Optimization: check canPlaceLight FIRST (cheap world lookup), only create BlockPos if valid
-        // This avoids allocating BlockPos for positions that fail the air/water check
-        List<Offset> offsets = getOffsets(entityConfig.horizontalRadius(), entityConfig.height());
+        List<Offset> offsets = getOffsets(horizontalRadius, height);
         String worldName = idealPos.worldName();
         int baseX = idealPos.x();
         int baseY = idealPos.y();
@@ -389,29 +426,20 @@ public class LightRenderer implements Listener {
             int tryY = baseY + o.dy;
             int tryZ = baseZ + o.dz;
 
-            // Check canPlaceLight first (most positions fail here, avoiding BlockPos allocation)
-            if (!canPlaceLightAt(world, tryX, tryY, tryZ)) {
+            Material type = world.getBlockAt(tryX, tryY, tryZ).getType();
+            boolean isWater = type == Material.WATER;
+            if (type != Material.AIR && type != Material.CAVE_AIR && !isWater) {
                 continue;
             }
 
             // Only create BlockPos for positions that pass the air/water check
             BlockPos tryPos = new BlockPos(worldName, tryX, tryY, tryZ);
             if (!usedPositions.contains(tryPos)) {
-                return tryPos;
+                return new LightPlacement(tryPos, isWater);
             }
         }
 
         return null;
-    }
-
-    private boolean canPlaceLightAt(World world, int x, int y, int z) {
-        Material type = world.getBlockAt(x, y, z).getType();
-        return type == Material.AIR || type == Material.CAVE_AIR || type == Material.WATER;
-    }
-
-    private boolean canPlaceLight(World world, BlockPos pos) {
-        Material type = world.getBlockAt(pos.x(), pos.y(), pos.z()).getType();
-        return type == Material.AIR || type == Material.CAVE_AIR || type == Material.WATER;
     }
 
     /**
@@ -446,6 +474,64 @@ public class LightRenderer implements Listener {
                         loc.getBlock().getBlockData()
                     );
                 }
+            }
+
+            if (!batchChanges.isEmpty()) {
+                player.sendMultiBlockChange(batchChanges);
+            }
+        }
+    }
+
+    /**
+     * Clear all child lights for a parent entity from all players.
+     * Called when a parent entity is removed to immediately clean up child lights (e.g., trails).
+     *
+     * <p>This is a generic replacement for the old projectile-specific clearProjectileTrails().
+     * It uses the parent-child tracking built during applyUpdates() instead of regenerating
+     * synthetic UUIDs.</p>
+     *
+     * @param parentId The UUID of the parent entity being removed
+     */
+    public void clearChildLights(UUID parentId) {
+        // Get the child IDs for this parent
+        Set<UUID> childIds = parentToChildren.remove(parentId);
+        if (childIds == null || childIds.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<UUID, Map<UUID, PlacedLight>> playerEntry : playerEntityState.entrySet()) {
+            UUID playerId = playerEntry.getKey();
+            Map<UUID, PlacedLight> entityState = playerEntry.getValue();
+
+            Player player = Bukkit.getPlayer(playerId);
+            if (player == null || !player.isOnline()) {
+                continue;
+            }
+
+            World world = player.getWorld();
+            String worldName = world.getName();
+            Map<Position, BlockData> batchChanges = new HashMap<>();
+
+            // Remove all children of this parent
+            for (UUID childId : childIds) {
+                PlacedLight placed = entityState.remove(childId);
+                if (placed != null && placed.pos().worldName().equals(worldName)) {
+                    Location loc = new Location(world, placed.pos().x(), placed.pos().y(), placed.pos().z());
+                    batchChanges.put(
+                        Position.block(placed.pos().x(), placed.pos().y(), placed.pos().z()),
+                        loc.getBlock().getBlockData()
+                    );
+                }
+            }
+
+            // Also remove the parent light itself if present
+            PlacedLight parentPlaced = entityState.remove(parentId);
+            if (parentPlaced != null && parentPlaced.pos().worldName().equals(worldName)) {
+                Location loc = new Location(world, parentPlaced.pos().x(), parentPlaced.pos().y(), parentPlaced.pos().z());
+                batchChanges.put(
+                    Position.block(parentPlaced.pos().x(), parentPlaced.pos().y(), parentPlaced.pos().z()),
+                    loc.getBlock().getBlockData()
+                );
             }
 
             if (!batchChanges.isEmpty()) {

@@ -1,6 +1,8 @@
 package anon.def9a2a4.dynlight.engine;
 
 import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.api.EntityLightDetector;
+import anon.def9a2a4.dynlight.api.LightSourceInfo;
 import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -16,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Central registry of all light-emitting entities.
@@ -24,28 +27,39 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class LightSourceManager implements DynLightAPI {
 
-    // World name -> (Entity UUID -> Light level) for all persistent light sources
-    private final Map<String, Map<UUID, Integer>> lightSourcesByWorld = new ConcurrentHashMap<>();
+    // World name -> (Entity UUID -> Light info) for all persistent light sources
+    private final Map<String, Map<UUID, LightSourceInfo>> lightSourcesByWorld = new ConcurrentHashMap<>();
+
+    // Registered detectors for evaluating entities
+    private final List<EntityLightDetector> detectors = new CopyOnWriteArrayList<>();
 
     @Override
     public void addLightSource(Entity entity, int level) {
+        addLightSource(entity, LightSourceInfo.of(level));
+    }
+
+    @Override
+    public void addLightSource(Entity entity, LightSourceInfo info) {
         if (entity == null) {
             throw new IllegalArgumentException("Entity cannot be null");
         }
-        if (level < 1 || level > 15) {
+        if (info == null) {
+            throw new IllegalArgumentException("Light info cannot be null");
+        }
+        if (info.lightLevel() < 1 || info.lightLevel() > 15) {
             throw new IllegalArgumentException("Light level must be between 1 and 15");
         }
         String worldName = entity.getWorld().getName();
         lightSourcesByWorld
                 .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
-                .put(entity.getUniqueId(), level);
+                .put(entity.getUniqueId(), info);
     }
 
     @Override
     public void removeLightSource(Entity entity) {
         if (entity == null) return;
         String worldName = entity.getWorld().getName();
-        Map<UUID, Integer> worldSources = lightSourcesByWorld.get(worldName);
+        Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         if (worldSources != null) {
             worldSources.remove(entity.getUniqueId());
         }
@@ -55,17 +69,23 @@ public class LightSourceManager implements DynLightAPI {
     public boolean isLightSource(Entity entity) {
         if (entity == null) return false;
         String worldName = entity.getWorld().getName();
-        Map<UUID, Integer> worldSources = lightSourcesByWorld.get(worldName);
+        Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         return worldSources != null && worldSources.containsKey(entity.getUniqueId());
     }
 
     @Override
     public int getLightLevel(Entity entity) {
-        if (entity == null) return 0;
+        LightSourceInfo info = getLightSourceInfo(entity);
+        return info != null ? info.lightLevel() : 0;
+    }
+
+    @Override
+    public LightSourceInfo getLightSourceInfo(Entity entity) {
+        if (entity == null) return null;
         String worldName = entity.getWorld().getName();
-        Map<UUID, Integer> worldSources = lightSourcesByWorld.get(worldName);
-        if (worldSources == null) return 0;
-        return worldSources.getOrDefault(entity.getUniqueId(), 0);
+        Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
+        if (worldSources == null) return null;
+        return worldSources.get(entity.getUniqueId());
     }
 
     @Override
@@ -76,7 +96,7 @@ public class LightSourceManager implements DynLightAPI {
         String worldName = entity.getWorld().getName();
         lightSourcesByWorld
                 .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
-                .put(entity.getUniqueId(), level);
+                .put(entity.getUniqueId(), LightSourceInfo.of(level));
     }
 
     @Override
@@ -85,12 +105,13 @@ public class LightSourceManager implements DynLightAPI {
         if (level < 1 || level > 15) {
             throw new IllegalArgumentException("Light level must be between 1 and 15");
         }
+        LightSourceInfo info = LightSourceInfo.of(level);
         for (Entity entity : entities) {
             if (entity != null) {
                 String worldName = entity.getWorld().getName();
                 lightSourcesByWorld
                         .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
-                        .put(entity.getUniqueId(), level);
+                        .put(entity.getUniqueId(), info);
             }
         }
     }
@@ -105,7 +126,7 @@ public class LightSourceManager implements DynLightAPI {
                 String worldName = entity.getWorld().getName();
                 lightSourcesByWorld
                         .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
-                        .put(entity.getUniqueId(), level);
+                        .put(entity.getUniqueId(), LightSourceInfo.of(level));
             }
         }
     }
@@ -116,7 +137,7 @@ public class LightSourceManager implements DynLightAPI {
         for (Entity entity : entities) {
             if (entity != null) {
                 String worldName = entity.getWorld().getName();
-                Map<UUID, Integer> worldSources = lightSourcesByWorld.get(worldName);
+                Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
                 if (worldSources != null) {
                     worldSources.remove(entity.getUniqueId());
                 }
@@ -128,11 +149,11 @@ public class LightSourceManager implements DynLightAPI {
      * Get all active light sources for rendering, organized by world.
      * Returns a snapshot copy preserving world partitioning.
      *
-     * @return Map of world name to (entity UUID to light level)
+     * @return Map of world name to (entity UUID to light info)
      */
-    public Map<String, Map<UUID, Integer>> getAllLightSources() {
-        Map<String, Map<UUID, Integer>> result = new HashMap<>(lightSourcesByWorld.size());
-        for (Map.Entry<String, Map<UUID, Integer>> entry : lightSourcesByWorld.entrySet()) {
+    public Map<String, Map<UUID, LightSourceInfo>> getAllLightSources() {
+        Map<String, Map<UUID, LightSourceInfo>> result = new HashMap<>(lightSourcesByWorld.size());
+        for (Map.Entry<String, Map<UUID, LightSourceInfo>> entry : lightSourcesByWorld.entrySet()) {
             result.put(entry.getKey(), new HashMap<>(entry.getValue()));
         }
         return result;
@@ -146,7 +167,7 @@ public class LightSourceManager implements DynLightAPI {
      */
     public int getTotalLightSourceCount() {
         int count = 0;
-        for (Map<UUID, Integer> worldSources : lightSourcesByWorld.values()) {
+        for (Map<UUID, LightSourceInfo> worldSources : lightSourcesByWorld.values()) {
             count += worldSources.size();
         }
         return count;
@@ -159,7 +180,7 @@ public class LightSourceManager implements DynLightAPI {
      */
     public Map<String, Integer> getLightSourceCountsByWorld() {
         Map<String, Integer> counts = new HashMap<>();
-        for (Map.Entry<String, Map<UUID, Integer>> entry : lightSourcesByWorld.entrySet()) {
+        for (Map.Entry<String, Map<UUID, LightSourceInfo>> entry : lightSourcesByWorld.entrySet()) {
             int size = entry.getValue().size();
             if (size > 0) {
                 counts.put(entry.getKey(), size);
@@ -181,15 +202,15 @@ public class LightSourceManager implements DynLightAPI {
         Set<String> worlds = new HashSet<>(lightSourcesByWorld.keySet());
 
         for (String expectedWorld : worlds) {
-            Map<UUID, Integer> worldSources = lightSourcesByWorld.get(expectedWorld);
+            Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(expectedWorld);
             if (worldSources == null) {
                 continue;
             }
 
             // Create defensive copy to avoid CME during iteration
-            Map<UUID, Integer> sourcesCopy = new HashMap<>(worldSources);
+            Map<UUID, LightSourceInfo> sourcesCopy = new HashMap<>(worldSources);
 
-            for (Map.Entry<UUID, Integer> entry : sourcesCopy.entrySet()) {
+            for (Map.Entry<UUID, LightSourceInfo> entry : sourcesCopy.entrySet()) {
                 Entity entity = Bukkit.getEntity(entry.getKey());
                 if (entity == null || !entity.isValid()) {
                     // Remove stale entry from original map
@@ -211,12 +232,15 @@ public class LightSourceManager implements DynLightAPI {
                             .put(entity.getUniqueId(), entry.getValue());
                 }
 
+                LightSourceInfo info = entry.getValue();
                 snapshots.add(new LightSnapshot(
                         entity.getUniqueId(),
                         entity.getType(),
                         actualWorld,
                         entity.getX(), entity.getY(), entity.getZ(),
-                        entry.getValue()
+                        info.lightLevel(),
+                        info.horizontalRadius(),
+                        info.height()
                 ));
             }
         }
@@ -229,7 +253,7 @@ public class LightSourceManager implements DynLightAPI {
      * Searches all worlds since we only have UUID.
      */
     public boolean hasLightSource(UUID entityId) {
-        for (Map<UUID, Integer> worldSources : lightSourcesByWorld.values()) {
+        for (Map<UUID, LightSourceInfo> worldSources : lightSourcesByWorld.values()) {
             if (worldSources.containsKey(entityId)) {
                 return true;
             }
@@ -245,7 +269,7 @@ public class LightSourceManager implements DynLightAPI {
      */
     public int cleanup() {
         int removed = 0;
-        for (Map<UUID, Integer> worldSources : lightSourcesByWorld.values()) {
+        for (Map<UUID, LightSourceInfo> worldSources : lightSourcesByWorld.values()) {
             Iterator<UUID> it = worldSources.keySet().iterator();
             while (it.hasNext()) {
                 Entity entity = Bukkit.getEntity(it.next());
@@ -256,5 +280,53 @@ public class LightSourceManager implements DynLightAPI {
             }
         }
         return removed;
+    }
+
+    // --- Detector API ---
+
+    @Override
+    public void registerDetector(EntityLightDetector detector) {
+        if (detector != null && !detectors.contains(detector)) {
+            detectors.add(detector);
+        }
+    }
+
+    @Override
+    public void unregisterDetector(EntityLightDetector detector) {
+        detectors.remove(detector);
+    }
+
+    @Override
+    public void scanEntities(Collection<Entity> entities) {
+        if (entities == null || entities.isEmpty()) return;
+        for (Entity entity : entities) {
+            if (entity == null || !entity.isValid()) continue;
+            // Skip if already registered
+            if (isLightSource(entity)) continue;
+
+            LightSourceInfo info = detectLight(entity);
+            if (info != null) {
+                addLightSource(entity, info);
+            }
+        }
+    }
+
+    /**
+     * Run all registered detectors on an entity.
+     * Returns the best result (highest light level) or null if no detector matched.
+     */
+    public LightSourceInfo detectLight(Entity entity) {
+        if (entity == null) return null;
+
+        LightSourceInfo best = null;
+        for (EntityLightDetector detector : detectors) {
+            LightSourceInfo info = detector.detect(entity);
+            if (info != null) {
+                if (best == null || info.lightLevel() > best.lightLevel()) {
+                    best = info;
+                }
+            }
+        }
+        return best;
     }
 }
