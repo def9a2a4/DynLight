@@ -1,5 +1,7 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.engine;
 
+import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
@@ -65,6 +67,17 @@ public class LightSourceManager implements DynLightAPI {
     }
 
     @Override
+    public void updateLightLevel(Entity entity, int level) {
+        if (entity == null || level < 1 || level > 15) {
+            return;
+        }
+        String worldName = entity.getWorld().getName();
+        lightSourcesByWorld
+                .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
+                .put(entity.getUniqueId(), level);
+    }
+
+    @Override
     public void addLightSources(Collection<Entity> entities, int level) {
         if (entities == null || entities.isEmpty()) return;
         if (level < 1 || level > 15) {
@@ -107,23 +120,6 @@ public class LightSourceManager implements DynLightAPI {
                 }
             }
         }
-    }
-
-    /**
-     * Update the light level for an existing light source.
-     * Used when fire state changes (upgrade to fire light, downgrade to base light).
-     *
-     * @param entity The entity to update
-     * @param level The new light level (1-15)
-     */
-    public void updateLightLevel(Entity entity, int level) {
-        if (entity == null || level < 1 || level > 15) {
-            return;
-        }
-        String worldName = entity.getWorld().getName();
-        lightSourcesByWorld
-                .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
-                .put(entity.getUniqueId(), level);
     }
 
     /**

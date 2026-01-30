@@ -1,4 +1,4 @@
-package anon.def9a2a4.dynlight.util;
+package anon.def9a2a4.dynlight.detection.util;
 
 import org.bukkit.entity.Entity;
 

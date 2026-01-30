@@ -1,4 +1,4 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.api;
 
 import org.bukkit.entity.Entity;
 
@@ -40,6 +40,15 @@ public interface DynLightAPI {
      * @return Light level 1-15, or 0 if not a light source
      */
     int getLightLevel(Entity entity);
+
+    /**
+     * Update the light level for an existing light source.
+     * If the entity is not already a light source, this behaves like addLightSource.
+     *
+     * @param entity The entity to update
+     * @param level  Light level 1-15
+     */
+    void updateLightLevel(Entity entity, int level);
 
     /**
      * Register multiple entities as light sources with the same light level.

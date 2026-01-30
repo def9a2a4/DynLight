@@ -1,6 +1,9 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.detection;
 
-import anon.def9a2a4.dynlight.util.FireStateUtil;
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
+import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;

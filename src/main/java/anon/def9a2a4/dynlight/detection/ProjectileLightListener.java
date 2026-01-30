@@ -1,6 +1,9 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.detection;
 
-import anon.def9a2a4.dynlight.util.FireStateUtil;
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
@@ -23,12 +26,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ProjectileLightListener implements Listener {
 
     private final DynLightConfig config;
-    private final LightSourceManager sourceManager;
+    private final DynLightAPI api;
     private final Set<UUID> burningProjectiles = ConcurrentHashMap.newKeySet();
 
-    public ProjectileLightListener(DynLightConfig config, LightSourceManager sourceManager) {
+    public ProjectileLightListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
-        this.sourceManager = sourceManager;
+        this.api = api;
     }
 
     @EventHandler
@@ -40,7 +43,7 @@ public class ProjectileLightListener implements Listener {
             EntityLightConfig arrowConfig = config.getEntityConfig(projectile.getType());
             int baseLight = arrowConfig.baseLight();
             if (baseLight > 0) {
-                sourceManager.addLightSource(projectile, baseLight);
+                api.addLightSource(projectile, baseLight);
             }
         }
 
@@ -69,7 +72,7 @@ public class ProjectileLightListener implements Listener {
         Entity entity = event.getEntity();
         if (entity instanceof Projectile) {
             burningProjectiles.remove(entity.getUniqueId());
-            sourceManager.removeLightSource(entity);
+            api.removeLightSource(entity);
         }
     }
 
@@ -79,7 +82,7 @@ public class ProjectileLightListener implements Listener {
         int fireLight = arrowConfig.fireLight();
 
         burningProjectiles.add(arrowId);
-        sourceManager.addLightSource(arrow, fireLight);
+        api.addLightSource(arrow, fireLight);
     }
 
     /**
@@ -105,12 +108,12 @@ public class ProjectileLightListener implements Listener {
                     EntityLightConfig arrowConfig = config.getEntityConfig(entity.getType());
                     int baseLight = arrowConfig.baseLight();
                     if (baseLight > 0) {
-                        sourceManager.updateLightLevel(entity, baseLight);
+                        api.updateLightLevel(entity, baseLight);
                     } else {
-                        sourceManager.removeLightSource(entity);
+                        api.removeLightSource(entity);
                     }
                 } else {
-                    sourceManager.removeLightSource(entity);
+                    api.removeLightSource(entity);
                 }
             }
         }

@@ -1,5 +1,11 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.engine;
 
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.engine.data.BlockPos;
+import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
+import anon.def9a2a4.dynlight.engine.data.PlayerLightUpdate;
+import anon.def9a2a4.dynlight.engine.data.PlayerSnapshot;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;

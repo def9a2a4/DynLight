@@ -1,6 +1,18 @@
 package anon.def9a2a4.dynlight;
 
-import anon.def9a2a4.dynlight.command.DynLightCommand;
+import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.detection.BurningEntityListener;
+import anon.def9a2a4.dynlight.detection.EntityLightListener;
+import anon.def9a2a4.dynlight.detection.ItemLightListener;
+import anon.def9a2a4.dynlight.detection.PlayerLightDetector;
+import anon.def9a2a4.dynlight.detection.ProjectileLightListener;
+import anon.def9a2a4.dynlight.engine.LightRenderer;
+import anon.def9a2a4.dynlight.engine.LightSourceManager;
+import anon.def9a2a4.dynlight.engine.PlayerPreferences;
+import anon.def9a2a4.dynlight.engine.command.DynLightCommand;
+import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
+import anon.def9a2a4.dynlight.engine.data.PlayerLightUpdate;
+import anon.def9a2a4.dynlight.engine.data.PlayerSnapshot;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -55,7 +67,7 @@ public class DynLightPlugin extends JavaPlugin {
         this.renderer = new LightRenderer(config, playerPreferences);
         this.playerDetector = new PlayerLightDetector(config);
 
-        // Create event listeners
+        // Create event listeners (pass sourceManager which implements DynLightAPI)
         this.burningEntityListener = new BurningEntityListener(config, sourceManager);
         this.projectileLightListener = new ProjectileLightListener(config, sourceManager);
 

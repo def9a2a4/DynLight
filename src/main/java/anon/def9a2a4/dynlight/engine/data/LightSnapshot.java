@@ -1,4 +1,4 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.engine.data;
 
 import org.bukkit.entity.EntityType;
 

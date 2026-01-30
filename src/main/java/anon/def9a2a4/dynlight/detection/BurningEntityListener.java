@@ -1,7 +1,10 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.detection;
 
-import anon.def9a2a4.dynlight.util.EntityFilters;
-import anon.def9a2a4.dynlight.util.FireStateUtil;
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.api.DynLightAPI;
+import anon.def9a2a4.dynlight.detection.util.EntityFilters;
+import anon.def9a2a4.dynlight.detection.util.FireStateUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;
@@ -22,12 +25,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BurningEntityListener implements Listener {
 
     private final DynLightConfig config;
-    private final LightSourceManager sourceManager;
+    private final DynLightAPI api;
     private final Set<UUID> burningEntities = ConcurrentHashMap.newKeySet();
 
-    public BurningEntityListener(DynLightConfig config, LightSourceManager sourceManager) {
+    public BurningEntityListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
-        this.sourceManager = sourceManager;
+        this.api = api;
     }
 
     @EventHandler
@@ -80,9 +83,9 @@ public class BurningEntityListener implements Listener {
         burningEntities.add(entityId);
 
         // Update light level (fire light is typically higher than base light)
-        int currentLevel = sourceManager.getLightLevel(entity);
+        int currentLevel = api.getLightLevel(entity);
         if (fireLight > currentLevel) {
-            sourceManager.updateLightLevel(entity, fireLight);
+            api.updateLightLevel(entity, fireLight);
         }
     }
 
@@ -111,10 +114,10 @@ public class BurningEntityListener implements Listener {
 
                 if (config.alwaysLitEntitiesEnabled && baseLight > 0) {
                     // Downgrade to base light
-                    sourceManager.updateLightLevel(entity, baseLight);
+                    api.updateLightLevel(entity, baseLight);
                 } else {
                     // Remove light source entirely
-                    sourceManager.removeLightSource(entity);
+                    api.removeLightSource(entity);
                 }
             }
         }

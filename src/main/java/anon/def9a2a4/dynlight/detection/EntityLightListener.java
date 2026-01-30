@@ -1,5 +1,8 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.detection;
 
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.EntityLightConfig;
+import anon.def9a2a4.dynlight.api.DynLightAPI;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -17,11 +20,11 @@ import org.bukkit.event.world.ChunkLoadEvent;
 public class EntityLightListener implements Listener {
 
     private final DynLightConfig config;
-    private final LightSourceManager sourceManager;
+    private final DynLightAPI api;
 
-    public EntityLightListener(DynLightConfig config, LightSourceManager sourceManager) {
+    public EntityLightListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
-        this.sourceManager = sourceManager;
+        this.api = api;
     }
 
     @EventHandler
@@ -42,13 +45,13 @@ public class EntityLightListener implements Listener {
         int baseLight = entityConfig.baseLight();
 
         if (baseLight > 0) {
-            sourceManager.addLightSource(entity, baseLight);
+            api.addLightSource(entity, baseLight);
         }
     }
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
-        sourceManager.removeLightSource(event.getEntity());
+        api.removeLightSource(event.getEntity());
     }
 
     @EventHandler
@@ -66,8 +69,8 @@ public class EntityLightListener implements Listener {
             EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
             int baseLight = entityConfig.baseLight();
 
-            if (baseLight > 0 && !sourceManager.isLightSource(entity)) {
-                sourceManager.addLightSource(entity, baseLight);
+            if (baseLight > 0 && !api.isLightSource(entity)) {
+                api.addLightSource(entity, baseLight);
             }
         }
     }

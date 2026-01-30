@@ -1,5 +1,7 @@
-package anon.def9a2a4.dynlight;
+package anon.def9a2a4.dynlight.detection;
 
+import anon.def9a2a4.dynlight.DynLightConfig;
+import anon.def9a2a4.dynlight.api.DynLightAPI;
 import org.bukkit.Material;
 import org.bukkit.entity.Item;
 import org.bukkit.event.EventHandler;
@@ -18,12 +20,12 @@ import java.util.Map;
 public class ItemLightListener implements Listener {
 
     private final DynLightConfig config;
-    private final LightSourceManager sourceManager;
+    private final DynLightAPI api;
     private final Map<Material, Integer> itemLightLevels;
 
-    public ItemLightListener(DynLightConfig config, LightSourceManager sourceManager) {
+    public ItemLightListener(DynLightConfig config, DynLightAPI api) {
         this.config = config;
-        this.sourceManager = sourceManager;
+        this.api = api;
         this.itemLightLevels = config.itemLightLevels;
     }
 
@@ -36,18 +38,18 @@ public class ItemLightListener implements Listener {
         Item item = event.getEntity();
         int level = calculateLightLevel(item.getItemStack());
         if (level > 0) {
-            sourceManager.addLightSource(item, level);
+            api.addLightSource(item, level);
         }
     }
 
     @EventHandler
     public void onItemPickup(EntityPickupItemEvent event) {
-        sourceManager.removeLightSource(event.getItem());
+        api.removeLightSource(event.getItem());
     }
 
     @EventHandler
     public void onItemDespawn(ItemDespawnEvent event) {
-        sourceManager.removeLightSource(event.getEntity());
+        api.removeLightSource(event.getEntity());
     }
 
     private int calculateLightLevel(ItemStack stack) {

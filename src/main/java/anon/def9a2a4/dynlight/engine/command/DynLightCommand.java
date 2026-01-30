@@ -1,9 +1,9 @@
-package anon.def9a2a4.dynlight.command;
+package anon.def9a2a4.dynlight.engine.command;
 
 import anon.def9a2a4.dynlight.DynLightConfig;
-import anon.def9a2a4.dynlight.LightSourceManager;
-import anon.def9a2a4.dynlight.LightRenderer;
-import anon.def9a2a4.dynlight.PlayerPreferences;
+import anon.def9a2a4.dynlight.engine.LightSourceManager;
+import anon.def9a2a4.dynlight.engine.LightRenderer;
+import anon.def9a2a4.dynlight.engine.PlayerPreferences;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
