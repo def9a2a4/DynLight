@@ -9,13 +9,14 @@ clean:
 	gradle clean
 	rm -rf bin/
 
-.PHONY: server-plugin-copy
-server-plugin-copy:
-	cp bin/DynLight*.jar server/plugins/
-
 .PHONY: server-clear-plugin-data
 server-clear-plugin-data:
 	rm -rf server/plugins/DynLight/
+
+.PHONY: server-plugin-copy
+server-plugin-copy: server-clear-plugin-data
+	rm -rf server/plugins/DynLight*.jar
+	cp bin/DynLight*.jar server/plugins/
 
 .PHONY: server-start
 server-start:

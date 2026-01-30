@@ -1,1 +1,223 @@
 # DynLight configuration
+
+# Update interval in ticks (20 ticks = 1 second)
+update-interval: 20
+
+# Maximum distance to render dynamic lights (blocks)
+render-distance: 96
+
+# Detection toggles
+detection:
+  held-items: true
+  dropped-items: true
+  burning-entities: true
+  flaming-arrows: true
+  enchanted-armor: true
+  enchanted-items: true
+  always-lit-entities: true
+
+# Light levels for player equipment
+light-levels:
+  enchanted-armor: 2
+  enchanted-items: 2
+
+# Item light levels (material: level 1-15)
+items:
+  TORCH: 10
+  SOUL_TORCH: 8
+  REDSTONE_TORCH: 6
+  LANTERN: 12
+  SOUL_LANTERN: 9
+  GLOWSTONE: 12
+  SHROOMLIGHT: 12
+  SEA_LANTERN: 12
+  JACK_O_LANTERN: 12
+  END_ROD: 12
+  OCHRE_FROGLIGHT: 12
+  VERDANT_FROGLIGHT: 12
+  PEARLESCENT_FROGLIGHT: 12
+  CAMPFIRE: 3
+  SOUL_CAMPFIRE: 2
+  BEACON: 15
+  CRYING_OBSIDIAN: 3
+  MAGMA_BLOCK: 3
+  NETHER_STAR: 14
+  GLOW_BERRIES: 3
+  GLOW_LICHEN: 1
+  LAVA_BUCKET: 12
+  GLOW_INK_SAC: 6
+  GLOW_ITEM_FRAME: 2
+  EXPERIENCE_BOTTLE: 3
+  ENDER_EYE: 1
+  END_CRYSTAL: 11
+  FIRE_CHARGE: 7
+  BLAZE_ROD: 10
+  BLAZE_POWDER: 6
+  MAGMA_CREAM: 1
+
+# Entity configuration
+# Defaults: base-light=0, fire-light=8, horizontal-radius=1, height=2
+# Only specify values that differ from defaults
+entities:
+  # Always-lit entities
+  BLAZE:
+    base-light: 8
+    fire-light: 8
+  GLOW_SQUID:
+    base-light: 8
+    fire-light: 8
+    height: 1
+  MAGMA_CUBE:
+    base-light: 8
+    fire-light: 12
+  ALLAY:
+    base-light: 1
+    fire-light: 4
+    horizontal-radius: 0
+    height: 1
+
+  # Dropped items
+  ITEM:
+    fire-light: 4
+    height: 2 # for when they land on snow
+
+  # Projectiles
+  ARROW:
+    fire-light: 6
+    height: 2 # for when they land on snow
+  SPECTRAL_ARROW:
+    base-light: 3
+    fire-light: 8
+  TRIDENT:
+    fire-light: 8
+  FIREBALL:
+    base-light: 12
+    horizontal-radius: 1
+    height: 1
+  SMALL_FIREBALL:
+    base-light: 8
+    height: 1
+  DRAGON_FIREBALL:
+    base-light: 12
+    height: 1
+
+  # Small mobs (fire-light=5, height=2)
+  CHICKEN:
+    fire-light: 5
+    height: 2
+  RABBIT:
+    fire-light: 5
+    height: 2
+  BAT:
+    fire-light: 5
+    height: 2
+  SILVERFISH:
+    fire-light: 5
+    height: 2
+  ENDERMITE:
+    fire-light: 5
+    height: 2
+  SPIDER:
+    fire-light: 5
+    height: 2
+  CAVE_SPIDER:
+    fire-light: 5
+    height: 2
+  PIG:
+    fire-light: 5
+    height: 2
+  SHEEP:
+    fire-light: 5
+    height: 2
+  WOLF:
+    fire-light: 5
+    height: 2
+  CAT:
+    fire-light: 5
+    height: 2
+  OCELOT:
+    fire-light: 5
+    height: 2
+  FOX:
+    fire-light: 5
+    height: 2
+  SLIME:
+    fire-light: 5
+
+  # Humanoid mobs (height=3)
+  PLAYER:
+    height: 3
+  ZOMBIE:
+    height: 3
+  SKELETON:
+    height: 3
+  CREEPER:
+    height: 2
+  PIGLIN:
+    height: 3
+  ZOMBIFIED_PIGLIN:
+    height: 3
+  WITHER_SKELETON:
+    height: 4
+  VILLAGER:
+    height: 3
+  PILLAGER:
+    height: 3
+  VINDICATOR:
+    height: 3
+  WITCH:
+    height: 3
+  DROWNED:
+    height: 3
+  HUSK:
+    height: 3
+  STRAY:
+    height: 3
+
+  # Medium mobs (use default fire-light=8)
+  COW:
+  HORSE:
+    height: 3
+  DONKEY:
+  MULE:
+
+  # Larger mobs (fire-light=10)
+  LLAMA:
+    fire-light: 10
+    height: 3
+  IRON_GOLEM:
+    fire-light: 10
+    height: 3
+  RAVAGER:
+    fire-light: 10
+    horizontal-radius: 2
+    height: 3
+  HOGLIN:
+    fire-light: 10
+  ZOGLIN:
+    fire-light: 10
+
+  # Tall mobs
+  ENDERMAN:
+    height: 3
+  WARDEN:
+    fire-light: 10
+    height: 3
+
+  # Flying mobs
+  GHAST:
+    fire-light: 10
+    horizontal-radius: 2
+    height: 3
+  PHANTOM:
+    height: 2
+
+  # Boss mobs (fire-light=15)
+  ENDER_DRAGON:
+    fire-light: 15
+    horizontal-radius: 3
+    height: 4
+  WITHER:
+    fire-light: 15
+    horizontal-radius: 2
+    height: 4
