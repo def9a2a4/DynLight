@@ -16,6 +16,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.world.ChunkUnloadEvent;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -111,6 +112,16 @@ public class ProjectileLightListener implements Listener, EntityLightDetector {
             trackBurningProjectile(arrow);
         } else if (entity instanceof Snowball snowball) {
             trackBurningProjectile(snowball);
+        }
+    }
+
+    @EventHandler
+    public void onChunkUnload(ChunkUnloadEvent event) {
+        // Clean up projectiles when their chunk unloads to prevent stale references
+        for (Entity entity : event.getChunk().getEntities()) {
+            UUID id = entity.getUniqueId();
+            burningProjectiles.remove(id);
+            watchedProjectiles.remove(id);
         }
     }
 

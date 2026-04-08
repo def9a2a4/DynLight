@@ -56,7 +56,9 @@ public class LightSourceManager implements DynLightAPI {
         if (info.lightLevel() < 1 || info.lightLevel() > 15) {
             throw new IllegalArgumentException("Light level must be between 1 and 15");
         }
-        String worldName = entity.getWorld().getName();
+        World world = entity.getWorld();
+        if (world == null) return;
+        String worldName = world.getName();
         lightSourcesByWorld
                 .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
                 .put(entity.getUniqueId(), info);
@@ -65,7 +67,9 @@ public class LightSourceManager implements DynLightAPI {
     @Override
     public void removeLightSource(Entity entity) {
         if (entity == null) return;
-        String worldName = entity.getWorld().getName();
+        World world = entity.getWorld();
+        if (world == null) return;
+        String worldName = world.getName();
         Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         if (worldSources != null) {
             if (worldSources.remove(entity.getUniqueId()) != null) {
@@ -77,7 +81,9 @@ public class LightSourceManager implements DynLightAPI {
     @Override
     public boolean isLightSource(Entity entity) {
         if (entity == null) return false;
-        String worldName = entity.getWorld().getName();
+        World world = entity.getWorld();
+        if (world == null) return false;
+        String worldName = world.getName();
         Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         return worldSources != null && worldSources.containsKey(entity.getUniqueId());
     }
@@ -91,7 +97,9 @@ public class LightSourceManager implements DynLightAPI {
     @Override
     public LightSourceInfo getLightSourceInfo(Entity entity) {
         if (entity == null) return null;
-        String worldName = entity.getWorld().getName();
+        World world = entity.getWorld();
+        if (world == null) return null;
+        String worldName = world.getName();
         Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         if (worldSources == null) return null;
         return worldSources.get(entity.getUniqueId());
@@ -102,7 +110,9 @@ public class LightSourceManager implements DynLightAPI {
         if (entity == null || level < 1 || level > 15) {
             return;
         }
-        String worldName = entity.getWorld().getName();
+        World world = entity.getWorld();
+        if (world == null) return;
+        String worldName = world.getName();
         lightSourcesByWorld
                 .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
                 .put(entity.getUniqueId(), LightSourceInfo.of(level));
@@ -117,7 +127,9 @@ public class LightSourceManager implements DynLightAPI {
         LightSourceInfo info = LightSourceInfo.of(level);
         for (Entity entity : entities) {
             if (entity != null) {
-                String worldName = entity.getWorld().getName();
+                World world = entity.getWorld();
+                if (world == null) continue;
+                String worldName = world.getName();
                 lightSourcesByWorld
                         .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
                         .put(entity.getUniqueId(), info);
@@ -132,7 +144,9 @@ public class LightSourceManager implements DynLightAPI {
             Entity entity = entry.getKey();
             Integer level = entry.getValue();
             if (entity != null && level != null && level >= 1 && level <= 15) {
-                String worldName = entity.getWorld().getName();
+                World world = entity.getWorld();
+                if (world == null) continue;
+                String worldName = world.getName();
                 lightSourcesByWorld
                         .computeIfAbsent(worldName, k -> new ConcurrentHashMap<>())
                         .put(entity.getUniqueId(), LightSourceInfo.of(level));
@@ -145,7 +159,9 @@ public class LightSourceManager implements DynLightAPI {
         if (entities == null || entities.isEmpty()) return;
         for (Entity entity : entities) {
             if (entity != null) {
-                String worldName = entity.getWorld().getName();
+                World world = entity.getWorld();
+                if (world == null) continue;
+                String worldName = world.getName();
                 Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
                 if (worldSources != null) {
                     if (worldSources.remove(entity.getUniqueId()) != null) {
