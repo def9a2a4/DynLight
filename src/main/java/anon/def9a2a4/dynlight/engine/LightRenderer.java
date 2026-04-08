@@ -337,6 +337,14 @@ public class LightRenderer implements Listener {
             // Filter invalidated entities (removed between snapshot and apply)
             LightSnapshot source = sourceMap.get(entityId);
             if (source == null) {
+                // Clean up old placement for invalidated entity
+                PlacedLight oldPlacement = entityState.remove(entityId);
+                if (oldPlacement != null && oldPlacement.pos().worldName().equals(worldName)) {
+                    BlockPos oldPos = oldPlacement.pos();
+                    Location loc = new Location(world, oldPos.x(), oldPos.y(), oldPos.z());
+                    batchChanges.put(Position.block(oldPos.x(), oldPos.y(), oldPos.z()), loc.getBlock().getBlockData());
+                    usedPositions.remove(oldPos);
+                }
                 continue;
             }
 
