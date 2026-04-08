@@ -10,13 +10,6 @@ render-distance: 96
 # How often to check for fire expiration on entities (ticks, 10 = 0.5 seconds)
 fire-sweep-interval: 10
 
-# Projectile trail settings (for flaming arrows, etc.)
-projectile-trail:
-  # Number of trail lights behind the projectile (0 to disable, max 10)
-  length: 2
-  # Minimum distance in blocks between trail lights (0.5 to 5.0)
-  spacing: 1.0
-
 # Detection toggles
 detection:
   held-items: true

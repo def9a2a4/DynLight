@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Tracks invalidated light source parents to prevent stale async results
+ * Tracks invalidated light sources to prevent stale async results
  * from re-adding lights after entity removal.
  *
  * <p>The async render cycle captures snapshots on Tick N but applies results on Tick N+1.
@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <ol>
  *   <li>Assigning a generation number to each snapshot capture</li>
- *   <li>Tracking which parent entities are invalidated per generation</li>
+ *   <li>Tracking which entities are invalidated per generation</li>
  *   <li>Filtering out invalidated sources at apply time</li>
  * </ol>
  *
@@ -49,28 +49,28 @@ public class InvalidationTracker {
     }
 
     /**
-     * Mark a parent entity as invalidated. Called on entity removal.
+     * Mark an entity as invalidated. Called on entity removal.
      * Marks in all tracked generations to catch any in-flight async operations.
      *
-     * @param parentId The UUID of the parent entity being removed
+     * @param entityId The UUID of the entity being removed
      */
-    public void invalidateParent(UUID parentId) {
+    public void invalidate(UUID entityId) {
         // Mark in all tracked generations (catches any in-flight async)
         for (Set<UUID> invalidated : invalidationsByGeneration.values()) {
-            invalidated.add(parentId);
+            invalidated.add(entityId);
         }
     }
 
     /**
-     * Check if a parent was invalidated after the given generation.
+     * Check if an entity was invalidated after the given generation.
      * Called from apply phase to filter stale async results.
      *
-     * @param parentId           The parent UUID to check
+     * @param entityId           The entity UUID to check
      * @param snapshotGeneration The generation when the snapshot was captured
-     * @return true if the parent was invalidated and should be skipped
+     * @return true if the entity was invalidated and should be skipped
      */
-    public boolean isInvalidated(UUID parentId, long snapshotGeneration) {
+    public boolean isInvalidated(UUID entityId, long snapshotGeneration) {
         Set<UUID> invalidated = invalidationsByGeneration.get(snapshotGeneration);
-        return invalidated != null && invalidated.contains(parentId);
+        return invalidated != null && invalidated.contains(entityId);
     }
 }

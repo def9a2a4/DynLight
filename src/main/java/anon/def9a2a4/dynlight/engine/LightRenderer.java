@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,16 +50,8 @@ public class LightRenderer implements Listener {
     private record Offset(int dx, int dy, int dz) {}
     private record LightPlacement(BlockPos pos, boolean isWater) {}
 
-    /**
-     * Records a placed light block with its position, level, and optional parent.
-     * The parentId is used by clearChildLights() to find children when a parent is removed.
-     */
-    public record PlacedLight(BlockPos pos, int level, UUID parentId) {
-        /** Convenience constructor for primary lights (no parent). */
-        public PlacedLight(BlockPos pos, int level) {
-            this(pos, level, null);
-        }
-    }
+    /** Records a placed light block with its position and level. */
+    public record PlacedLight(BlockPos pos, int level) {}
 
     // Static comparator to avoid allocation on each computeOffsets() call
     private static final Comparator<Offset> DISTANCE_COMPARATOR =
@@ -271,18 +262,9 @@ public class LightRenderer implements Listener {
         Map<BlockPos, UUID> positionToEntity = new HashMap<>();
 
         for (LightSnapshot source : lightSources) {
-            // Check if this source or its parent is invalidated
-            UUID parentId = source.parentId();
-            if (parentId != null) {
-                // Child light - check if parent is invalidated
-                if (tracker.isInvalidated(parentId, generation)) {
-                    continue; // Skip this child, its parent was removed
-                }
-            } else {
-                // Primary light - check if the entity itself is invalidated
-                if (tracker.isInvalidated(source.entityId(), generation)) {
-                    continue;
-                }
+            // Check if this source is invalidated (entity removed between snapshot and apply)
+            if (tracker.isInvalidated(source.entityId(), generation)) {
+                continue;
             }
 
             sourceMap.put(source.entityId(), source);
@@ -377,7 +359,7 @@ public class LightRenderer implements Listener {
                 Light lightData = placement.isWater() ? lightLevelsWaterlogged[lightLevel] : lightLevels[lightLevel];
                 batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightData);
                 usedPositions.add(placedPos);
-                entityState.put(entityId, new PlacedLight(placedPos, lightLevel, source.parentId()));
+                entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
             }
         }
 
@@ -470,62 +452,6 @@ public class LightRenderer implements Listener {
                         loc.getBlock().getBlockData()
                     );
                 }
-            }
-
-            if (!batchChanges.isEmpty()) {
-                player.sendMultiBlockChange(batchChanges);
-            }
-        }
-    }
-
-    /**
-     * Clear all child lights for a parent entity from all players.
-     * Called when a parent entity is removed to immediately clean up child lights (e.g., trails).
-     *
-     * <p>This iterates through playerEntityState and finds children by their stored parentId,
-     * which works even if called before applyUpdates() has run for this entity.</p>
-     *
-     * @param parentId The UUID of the parent entity being removed
-     */
-    public void clearChildLights(UUID parentId) {
-        for (Map.Entry<UUID, Map<UUID, PlacedLight>> playerEntry : playerEntityState.entrySet()) {
-            UUID playerId = playerEntry.getKey();
-            Map<UUID, PlacedLight> entityState = playerEntry.getValue();
-
-            Player player = Bukkit.getPlayer(playerId);
-            if (player == null || !player.isOnline()) {
-                continue;
-            }
-
-            World world = player.getWorld();
-            String worldName = world.getName();
-            Map<Position, BlockData> batchChanges = new HashMap<>();
-
-            // Find and remove all children with matching parentId
-            Iterator<Map.Entry<UUID, PlacedLight>> it = entityState.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<UUID, PlacedLight> entry = it.next();
-                PlacedLight placed = entry.getValue();
-
-                // Check if this light's parent matches
-                if (parentId.equals(placed.parentId()) && placed.pos().worldName().equals(worldName)) {
-                    it.remove();
-                    Location loc = new Location(world, placed.pos().x(), placed.pos().y(), placed.pos().z());
-                    batchChanges.put(
-                        Position.block(placed.pos().x(), placed.pos().y(), placed.pos().z()),
-                        loc.getBlock().getBlockData()
-                    );
-                }
-            }
-
-            // Also remove the parent light itself if present
-            PlacedLight parentPlaced = entityState.remove(parentId);
-            if (parentPlaced != null && parentPlaced.pos().worldName().equals(worldName)) {
-                Location loc = new Location(world, parentPlaced.pos().x(), parentPlaced.pos().y(), parentPlaced.pos().z());
-                batchChanges.put(
-                    Position.block(parentPlaced.pos().x(), parentPlaced.pos().y(), parentPlaced.pos().z()),
-                    loc.getBlock().getBlockData()
-                );
             }
 
             if (!batchChanges.isEmpty()) {

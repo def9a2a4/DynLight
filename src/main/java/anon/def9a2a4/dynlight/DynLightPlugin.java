@@ -81,7 +81,7 @@ public class DynLightPlugin extends JavaPlugin {
         // Create event listeners (pass sourceManager which implements DynLightAPI)
         // Each listener registers itself as a detector for chunk-load scanning
         this.burningEntityListener = new BurningEntityListener(config, sourceManager);
-        this.projectileLightListener = new ProjectileLightListener(config, sourceManager, renderer, invalidationTracker);
+        this.projectileLightListener = new ProjectileLightListener(config, sourceManager);
 
         // Register event listeners
         getServer().getPluginManager().registerEvents(renderer, this);
@@ -165,19 +165,8 @@ public class DynLightPlugin extends JavaPlugin {
             // All other entities are event-driven and stored in sourceManager
             List<LightSnapshot> entitySnapshots = sourceManager.getApiSnapshots();
 
-            // Update projectile position history and get trail snapshots (only if trails enabled)
-            List<LightSnapshot> trailSnapshots;
-            if (config.projectileTrailLength > 0) {
-                projectileLightListener.updatePositionHistory();
-                trailSnapshots = projectileLightListener.getTrailSnapshots();
-            } else {
-                trailSnapshots = List.of();
-            }
-
             // Merge player snapshots with entity snapshots (player takes priority if both exist)
             List<LightSnapshot> allSnapshots = mergeSnapshots(playerSnapshots, entitySnapshots);
-            // Add trail snapshots (no priority conflicts since they use synthetic UUIDs)
-            allSnapshots.addAll(trailSnapshots);
 
             // Capture player positions for distance calculations
             List<PlayerSnapshot> playerPositions = capturePlayerSnapshots();
@@ -280,11 +269,6 @@ public class DynLightPlugin extends JavaPlugin {
         // Update renderer with new config (for render distance changes)
         this.renderer.updateConfig(config);
         this.playerDetector = new PlayerLightDetector(config, equipmentCache);
-
-        // Clear trail history if trails are now disabled
-        if (config.projectileTrailLength <= 0) {
-            projectileLightListener.clearPositionHistory();
-        }
 
         // Reschedule update task with new interval
         if (updateTask != null) {
