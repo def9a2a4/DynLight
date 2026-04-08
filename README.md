@@ -14,6 +14,7 @@ Light sources follow players, illuminate dropped items, and make burning entitie
 - **Flaming Projectiles** - Arrows on fire, fireballs, and spectral arrows emit light
 - **Enchanted Equipment** - Players wearing enchanted armor or holding enchanted items emit a subtle glow
 - **Always-Lit Entities** - Blazes, Glow Squids, Magma Cubes, and Allays always emit light
+- **Scoreboard Tag Lights** - Any entity with a `dynlight:<level>` scoreboard tag emits light, enabling cross-plugin integration without compile-time dependencies
 
 ### Special Mechanics
 
@@ -51,6 +52,7 @@ detection:
   enchanted-armor: true
   enchanted-items: true
   always-lit-entities: true
+  tagged-entities: true
 ```
 
 Configure light intensity for enchanted equipment:
@@ -107,6 +109,26 @@ The light column will once place one light block -- we search wider than you'd t
 | `/dynlight reload`  | Reload configuration                | `dynlight.admin` |
 | `/dynlight regen`   | Regenerate all light sources        | `dynlight.admin` |
 
+
+## Scoreboard Tag Lights
+
+Any entity with a scoreboard tag matching `dynlight:<level>` will emit light. No API dependency required — just add the tag via commands or another plugin.
+
+**Format:** `dynlight:<level>` or `dynlight:<level>:<radius>:<height>`
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `level`   | 1–15  | Light level |
+| `radius`  | 0–5   | Horizontal search radius (optional, default from entity config) |
+| `height`  | 1–10  | Vertical search height (optional, default from entity config) |
+
+**Examples:**
+```
+/summon armor_stand ~ ~ ~ {Tags:["dynlight:15"]}
+/summon armor_stand ~ ~ ~ {Tags:["dynlight:10:3:5"]}
+```
+
+Note: the `/tag` command does not support colons in tag names — use NBT `Tags` when summoning, or add tags programmatically from another plugin.
 
 # API
 
