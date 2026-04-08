@@ -135,6 +135,39 @@ api.addLightSources(Map.of(entity1, 10, entity2, 5));
 api.removeLightSources(entityCollection);
 ```
 
+### Advanced: Custom Light Placement
+
+Control how the light block is placed around the entity:
+
+```java
+// Custom radius and height for light placement search
+LightSourceInfo info = LightSourceInfo.of(12, 2, 3); // level 12, radius 2, height 3
+api.addLightSource(entity, info);
+
+// Query full light info
+LightSourceInfo current = api.getLightSourceInfo(entity);
+```
+
+### Advanced: Entity Light Detectors
+
+Register a detector to automatically evaluate entities on chunk load and entity spawn:
+
+```java
+// Register a detector that makes all Endermen glow
+api.registerDetector(entity -> {
+    if (entity.getType() == EntityType.ENDERMAN) {
+        return LightSourceInfo.of(8);
+    }
+    return null; // not a light source
+});
+
+// Manually scan entities with registered detectors
+api.scanEntities(entities);
+
+// Unregister when done
+api.unregisterDetector(detector);
+```
+
 
 # Performance
 

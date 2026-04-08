@@ -72,7 +72,7 @@ public class DynLightPlugin extends JavaPlugin {
         this.config = new DynLightConfig(getConfig());
 
         // Initialize components
-        this.sourceManager = new LightSourceManager();
+        this.sourceManager = new LightSourceManager(invalidationTracker);
         this.playerPreferences = new PlayerPreferences(this);
         this.renderer = new LightRenderer(config, playerPreferences, this);
         this.equipmentCache = new PlayerEquipmentCache(this);

@@ -33,6 +33,13 @@ public class LightSourceManager implements DynLightAPI {
     // Registered detectors for evaluating entities
     private final List<EntityLightDetector> detectors = new CopyOnWriteArrayList<>();
 
+    // Invalidation tracker for async race condition prevention
+    private final InvalidationTracker invalidationTracker;
+
+    public LightSourceManager(InvalidationTracker invalidationTracker) {
+        this.invalidationTracker = invalidationTracker;
+    }
+
     @Override
     public void addLightSource(Entity entity, int level) {
         addLightSource(entity, LightSourceInfo.of(level));
@@ -61,7 +68,9 @@ public class LightSourceManager implements DynLightAPI {
         String worldName = entity.getWorld().getName();
         Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
         if (worldSources != null) {
-            worldSources.remove(entity.getUniqueId());
+            if (worldSources.remove(entity.getUniqueId()) != null) {
+                invalidationTracker.invalidate(entity.getUniqueId());
+            }
         }
     }
 
@@ -139,7 +148,9 @@ public class LightSourceManager implements DynLightAPI {
                 String worldName = entity.getWorld().getName();
                 Map<UUID, LightSourceInfo> worldSources = lightSourcesByWorld.get(worldName);
                 if (worldSources != null) {
-                    worldSources.remove(entity.getUniqueId());
+                    if (worldSources.remove(entity.getUniqueId()) != null) {
+                        invalidationTracker.invalidate(entity.getUniqueId());
+                    }
                 }
             }
         }
@@ -154,22 +165,7 @@ public class LightSourceManager implements DynLightAPI {
     }
 
     /**
-     * Get all active light sources for rendering, organized by world.
-     * Returns a snapshot copy preserving world partitioning.
-     *
-     * @return Map of world name to (entity UUID to light info)
-     */
-    public Map<String, Map<UUID, LightSourceInfo>> getAllLightSources() {
-        Map<String, Map<UUID, LightSourceInfo>> result = new HashMap<>(lightSourcesByWorld.size());
-        for (Map.Entry<String, Map<UUID, LightSourceInfo>> entry : lightSourcesByWorld.entrySet()) {
-            result.put(entry.getKey(), new HashMap<>(entry.getValue()));
-        }
-        return result;
-    }
-
-    /**
      * Get total count of light sources across all worlds.
-     * More efficient than getAllLightSources().size() for stats.
      *
      * @return Total number of registered light sources
      */
@@ -257,19 +253,6 @@ public class LightSourceManager implements DynLightAPI {
     }
 
     /**
-     * Check if an entity has a registered light source.
-     * Searches all worlds since we only have UUID.
-     */
-    public boolean hasLightSource(UUID entityId) {
-        for (Map<UUID, LightSourceInfo> worldSources : lightSourcesByWorld.values()) {
-            if (worldSources.containsKey(entityId)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Remove stale entries for entities that no longer exist.
      * Called periodically independent of render cycle to prevent memory leaks.
      *
@@ -278,11 +261,13 @@ public class LightSourceManager implements DynLightAPI {
     public int cleanup() {
         int removed = 0;
         for (Map<UUID, LightSourceInfo> worldSources : lightSourcesByWorld.values()) {
-            Iterator<UUID> it = worldSources.keySet().iterator();
+            Iterator<Map.Entry<UUID, LightSourceInfo>> it = worldSources.entrySet().iterator();
             while (it.hasNext()) {
-                Entity entity = Bukkit.getEntity(it.next());
+                UUID entityId = it.next().getKey();
+                Entity entity = Bukkit.getEntity(entityId);
                 if (entity == null || !entity.isValid()) {
                     it.remove();
+                    invalidationTracker.invalidate(entityId);
                     removed++;
                 }
             }

@@ -25,15 +25,4 @@ public final class EntityFilters {
     public static boolean shouldSkipForBurning(Entity entity) {
         return entity instanceof Player || entity instanceof Item || entity instanceof Projectile;
     }
-
-    /**
-     * Check if an entity should be skipped for always-lit entity detection.
-     * Players and items are handled by their own dedicated listeners.
-     *
-     * @param entity The entity to check
-     * @return true if the entity should be skipped
-     */
-    public static boolean shouldSkipForAlwaysLit(Entity entity) {
-        return entity instanceof Player || entity instanceof Item;
-    }
 }

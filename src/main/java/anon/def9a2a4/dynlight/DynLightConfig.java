@@ -192,15 +192,4 @@ public class DynLightConfig {
         return value;
     }
 
-    private double clampDoubleWithWarning(double value, double min, double max, String configKey) {
-        if (value < min) {
-            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " is below minimum, using " + min);
-            return min;
-        }
-        if (value > max) {
-            Bukkit.getLogger().warning("[DynLight] " + configKey + " value " + value + " exceeds maximum, using " + max);
-            return max;
-        }
-        return value;
-    }
 }
