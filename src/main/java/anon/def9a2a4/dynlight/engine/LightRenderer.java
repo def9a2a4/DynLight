@@ -471,7 +471,10 @@ public class LightRenderer implements Listener {
         // data, and subsequent render ticks skip re-sending because state looks unchanged.
         UUID playerId = event.getPlayer().getUniqueId();
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            playerEntityState.remove(playerId);
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                playerEntityState.remove(playerId);
+            }
         }, 20L);
     }
 
