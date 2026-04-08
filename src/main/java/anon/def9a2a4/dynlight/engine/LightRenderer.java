@@ -15,7 +15,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.Plugin;
 import io.papermc.paper.math.Position;
 
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ public class LightRenderer implements Listener {
 
     private DynLightConfig config;
     private PlayerPreferences preferences;
+    private final Plugin plugin;
     private double maxDistanceSquared;
 
     // Pre-created light block data for each level (1-15)
@@ -57,9 +60,10 @@ public class LightRenderer implements Listener {
     private static final Comparator<Offset> DISTANCE_COMPARATOR =
             Comparator.comparingInt(o -> o.dx * o.dx + o.dy * o.dy + o.dz * o.dz);
 
-    public LightRenderer(DynLightConfig config, PlayerPreferences preferences) {
+    public LightRenderer(DynLightConfig config, PlayerPreferences preferences, Plugin plugin) {
         this.config = config;
         this.preferences = preferences;
+        this.plugin = plugin;
         int renderDistance = config.renderDistance;
         this.maxDistanceSquared = (double) renderDistance * renderDistance;
 
@@ -458,6 +462,17 @@ public class LightRenderer implements Listener {
                 player.sendMultiBlockChange(batchChanges);
             }
         }
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        // Delay clearing state so that chunk data is fully sent to the client first.
+        // Without this, fake light blocks sent immediately get overwritten by real chunk
+        // data, and subsequent render ticks skip re-sending because state looks unchanged.
+        UUID playerId = event.getPlayer().getUniqueId();
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            playerEntityState.remove(playerId);
+        }, 20L);
     }
 
     @EventHandler
