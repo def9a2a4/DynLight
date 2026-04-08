@@ -2,6 +2,7 @@ package anon.def9a2a4.dynlight.engine;
 
 import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.engine.data.BlockPos;
+import anon.def9a2a4.dynlight.engine.data.EntityLightEntry;
 import anon.def9a2a4.dynlight.engine.data.LightSnapshot;
 import anon.def9a2a4.dynlight.engine.data.PlayerLightUpdate;
 import anon.def9a2a4.dynlight.engine.data.PlayerSnapshot;
@@ -194,8 +195,8 @@ public class LightRenderer implements Listener {
 
         // Pre-size based on expected changes (use previousState size as heuristic)
         int expectedSize = Math.max(previousState.size(), currentSources.size());
-        Map<BlockPos, Integer> toAdd = new HashMap<>(expectedSize);
-        Set<BlockPos> toRemove = new HashSet<>(previousState.size() / 4 + 1);
+        Map<UUID, EntityLightEntry> toAdd = new HashMap<>(expectedSize);
+        Set<UUID> toRemove = new HashSet<>(previousState.size() / 4 + 1);
 
         // Track which previous entities we've seen (for single-pass removal detection)
         Set<UUID> seenPreviousEntities = new HashSet<>(previousState.size());
@@ -217,7 +218,8 @@ public class LightRenderer implements Listener {
 
             if (oldPlacement == null) {
                 // New entity - needs light placed
-                toAdd.put(new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel());
+                toAdd.put(entityId, new EntityLightEntry(
+                        new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel()));
             } else {
                 BlockPos oldPos = oldPlacement.pos();
                 int dx = Math.abs(newX - oldPos.x());
@@ -225,26 +227,24 @@ public class LightRenderer implements Listener {
                 int dz = Math.abs(newZ - oldPos.z());
 
                 if (dx >= 1 || dy >= 1 || dz >= 1) {
-                    // Entity moved to different block - remove old, add new
-                    toRemove.add(oldPos);
-                    toAdd.put(new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel());
+                    // Entity moved to different block - add with new position
+                    // (apply phase handles removing the old placement)
+                    toAdd.put(entityId, new EntityLightEntry(
+                            new BlockPos(source.worldName(), newX, newY, newZ), source.lightLevel()));
                 } else if (oldPlacement.level() != source.lightLevel()) {
                     // Same position but light level changed - update in place
-                    toAdd.put(oldPos, source.lightLevel());
+                    toAdd.put(entityId, new EntityLightEntry(oldPos, source.lightLevel()));
                 }
                 // else: Unchanged - keep existing (no action needed)
             }
         }
 
-        // Single pass removal: entities in previous but not seen are removed
+        // Single pass removal: entities in previous but not seen are gone
         for (Map.Entry<UUID, PlacedLight> entry : previousState.entrySet()) {
             if (!seenPreviousEntities.contains(entry.getKey())) {
-                toRemove.add(entry.getValue().pos());
+                toRemove.add(entry.getKey());
             }
         }
-
-        // Don't remove positions that are being re-added
-        toRemove.removeAll(toAdd.keySet());
 
         return new PlayerLightUpdate(toAdd, toRemove);
     }
@@ -261,9 +261,8 @@ public class LightRenderer implements Listener {
      */
     public void applyUpdates(Map<UUID, PlayerLightUpdate> updates, List<LightSnapshot> lightSources,
                              InvalidationTracker tracker, long generation) {
-        // Build entity lookup maps (forward and reverse), filtering out invalidated sources
+        // Build entity lookup map, filtering out invalidated sources
         Map<UUID, LightSnapshot> sourceMap = new HashMap<>();
-        Map<BlockPos, UUID> positionToEntity = new HashMap<>();
 
         for (LightSnapshot source : lightSources) {
             // Check if this source is invalidated (entity removed between snapshot and apply)
@@ -272,9 +271,6 @@ public class LightRenderer implements Listener {
             }
 
             sourceMap.put(source.entityId(), source);
-            // Build reverse lookup: position -> entity UUID
-            BlockPos pos = new BlockPos(source.worldName(), source.blockX(), source.blockY(), source.blockZ());
-            positionToEntity.put(pos, source.entityId());
         }
 
         for (Map.Entry<UUID, PlayerLightUpdate> entry : updates.entrySet()) {
@@ -286,7 +282,7 @@ public class LightRenderer implements Listener {
                 continue;
             }
 
-            applyPlayerUpdate(player, update, sourceMap, positionToEntity);
+            applyPlayerUpdate(player, update, sourceMap);
         }
     }
 
@@ -294,7 +290,7 @@ public class LightRenderer implements Listener {
      * Apply update for a single player. MAIN THREAD ONLY.
      */
     private void applyPlayerUpdate(Player player, PlayerLightUpdate update,
-                                   Map<UUID, LightSnapshot> sourceMap, Map<BlockPos, UUID> positionToEntity) {
+                                   Map<UUID, LightSnapshot> sourceMap) {
         UUID playerId = player.getUniqueId();
         World world = player.getWorld();
         String worldName = world.getName();
@@ -302,38 +298,32 @@ public class LightRenderer implements Listener {
         // Get or create entity state map
         Map<UUID, PlacedLight> entityState = playerEntityState.computeIfAbsent(playerId, k -> new HashMap<>());
 
-        // Single-pass: build reverse lookup AND used positions set simultaneously
-        Map<BlockPos, UUID> statePositionToEntity = new HashMap<>(entityState.size());
+        // Build used positions set from current entity state
         Set<BlockPos> usedPositions = new HashSet<>(entityState.size());
-        for (Map.Entry<UUID, PlacedLight> entry : entityState.entrySet()) {
-            BlockPos pos = entry.getValue().pos();
-            statePositionToEntity.put(pos, entry.getKey());
-            usedPositions.add(pos);
+        for (PlacedLight placed : entityState.values()) {
+            usedPositions.add(placed.pos());
         }
 
         // Collect all block changes for batch sending
         Map<Position, BlockData> batchChanges = new HashMap<>();
 
-        // Collect removals (restore original blocks)
-        for (BlockPos pos : update.toRemove()) {
-            if (!pos.worldName().equals(worldName)) {
-                continue;
-            }
-            Location loc = new Location(world, pos.x(), pos.y(), pos.z());
-            batchChanges.put(Position.block(pos.x(), pos.y(), pos.z()), loc.getBlock().getBlockData());
-
-            // Remove from entity state using O(1) lookup
-            UUID entityToRemove = statePositionToEntity.get(pos);
-            if (entityToRemove != null) {
-                entityState.remove(entityToRemove);
-                usedPositions.remove(pos); // Keep usedPositions in sync
+        // Collect removals: entities that left view or stopped emitting
+        for (UUID entityId : update.toRemove()) {
+            PlacedLight placed = entityState.remove(entityId);
+            if (placed != null && placed.pos().worldName().equals(worldName)) {
+                BlockPos pos = placed.pos();
+                Location loc = new Location(world, pos.x(), pos.y(), pos.z());
+                batchChanges.put(Position.block(pos.x(), pos.y(), pos.z()), loc.getBlock().getBlockData());
+                usedPositions.remove(pos);
             }
         }
 
-        // Collect additions (find valid positions, add lights)
-        for (Map.Entry<BlockPos, Integer> entry : update.toAdd().entrySet()) {
-            BlockPos idealPos = entry.getKey();
-            int lightLevel = entry.getValue();
+        // Collect additions: new, moved, or level-changed entities
+        for (Map.Entry<UUID, EntityLightEntry> entry : update.toAdd().entrySet()) {
+            UUID entityId = entry.getKey();
+            EntityLightEntry lightEntry = entry.getValue();
+            BlockPos idealPos = lightEntry.idealPos();
+            int lightLevel = lightEntry.lightLevel();
 
             if (!idealPos.worldName().equals(worldName)) {
                 continue;
@@ -344,15 +334,19 @@ public class LightRenderer implements Listener {
                 continue;
             }
 
-            // Find which entity this position corresponds to (O(1) lookup)
-            UUID entityId = positionToEntity.get(idealPos);
-            if (entityId == null) {
+            // Filter invalidated entities (removed between snapshot and apply)
+            LightSnapshot source = sourceMap.get(entityId);
+            if (source == null) {
                 continue;
             }
 
-            LightSnapshot source = sourceMap.get(entityId);
-            if (source == null) {
-                continue; // Safety check
+            // If entity already has a placement (moved or level changed), remove old light first
+            PlacedLight oldPlacement = entityState.get(entityId);
+            if (oldPlacement != null && oldPlacement.pos().worldName().equals(worldName)) {
+                BlockPos oldPos = oldPlacement.pos();
+                Location loc = new Location(world, oldPos.x(), oldPos.y(), oldPos.z());
+                batchChanges.put(Position.block(oldPos.x(), oldPos.y(), oldPos.z()), loc.getBlock().getBlockData());
+                usedPositions.remove(oldPos);
             }
 
             // Find valid position for light placement using snapshot data
@@ -364,6 +358,9 @@ public class LightRenderer implements Listener {
                 batchChanges.put(Position.block(placedPos.x(), placedPos.y(), placedPos.z()), lightData);
                 usedPositions.add(placedPos);
                 entityState.put(entityId, new PlacedLight(placedPos, lightLevel));
+            } else {
+                // No valid position found - remove stale state
+                entityState.remove(entityId);
             }
         }
 
