@@ -8,7 +8,7 @@ description: dynamic entity-based lights minecraft plugin
 commands:
   dynlight:
     description: DynLight commands
-    usage: /dynlight <help|enable|disable|info|reload|stats>
+    usage: /dynlight <help|enable|disable|info|reload|regen|stats>
 
 permissions:
   dynlight.use:

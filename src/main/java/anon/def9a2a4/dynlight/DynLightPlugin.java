@@ -123,7 +123,8 @@ public class DynLightPlugin extends JavaPlugin {
         PluginCommand cmd = getCommand("dynlight");
         if (cmd != null) {
             DynLightCommand commandHandler = new DynLightCommand(
-                    this, () -> config, sourceManager, renderer, playerPreferences, this::reloadConfiguration
+                    this, () -> config, sourceManager, renderer, playerPreferences,
+                    this::reloadConfiguration, this::regenerateLightSources
             );
             cmd.setExecutor(commandHandler);
             cmd.setTabCompleter(commandHandler);
@@ -256,14 +257,33 @@ public class DynLightPlugin extends JavaPlugin {
     }
 
     /**
+     * Regenerate all light sources: clears all rendered lights and the source registry,
+     * then rescans all loaded entities. Used by /dynlight regen and after config reload.
+     */
+    private void regenerateLightSources() {
+        renderer.clearAllPlayers();
+        sourceManager.clearAll();
+        asyncState.set(null);
+        rescanAllEntities();
+    }
+
+    /**
+     * Rescan all entities in all loaded chunks across all worlds.
+     * Registers any detected light sources in the source manager.
+     */
+    private void rescanAllEntities() {
+        for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
+                sourceManager.scanEntities(List.of(chunk.getEntities()));
+            }
+        }
+    }
+
+    /**
      * Reload configuration from disk.
      * Called by /dynlight reload command.
      */
     private void reloadConfiguration() {
-        // Force-clear any pending async state (safe since we're on main thread)
-        // The next tick will start fresh computation with new config
-        asyncState.set(null);
-
         reloadConfig();
         this.config = new DynLightConfig(getConfig());
         // Update renderer with new config (for render distance changes)
@@ -292,6 +312,7 @@ public class DynLightPlugin extends JavaPlugin {
             projectileLightListener.checkFireIgnition();
         }, interval, interval);
 
+        regenerateLightSources();
         getLogger().info("Configuration reloaded");
     }
 

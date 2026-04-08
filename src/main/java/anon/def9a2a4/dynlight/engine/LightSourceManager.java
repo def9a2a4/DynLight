@@ -146,6 +146,14 @@ public class LightSourceManager implements DynLightAPI {
     }
 
     /**
+     * Clear all registered light sources across all worlds.
+     * Used by regen to reset the source registry before rescanning.
+     */
+    public void clearAll() {
+        lightSourcesByWorld.clear();
+    }
+
+    /**
      * Get all active light sources for rendering, organized by world.
      * Returns a snapshot copy preserving world partitioning.
      *
