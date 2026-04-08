@@ -105,6 +105,7 @@ The light column will once place one light block -- we search wider than you'd t
 | `/dynlight info`    | Show active light source count      | `dynlight.admin` |
 | `/dynlight stats`   | Show detailed statistics            | `dynlight.admin` |
 | `/dynlight reload`  | Reload configuration                | `dynlight.admin` |
+| `/dynlight regen`   | Regenerate all light sources        | `dynlight.admin` |
 
 
 # API
