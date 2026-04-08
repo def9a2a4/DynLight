@@ -28,6 +28,7 @@ public class DynLightConfig {
     public final boolean enchantedArmorEnabled;
     public final boolean enchantedItemsEnabled;
     public final boolean alwaysLitEntitiesEnabled;
+    public final boolean taggedEntitiesEnabled;
 
     // Light levels for player equipment
     public final int enchantedArmorLightLevel;
@@ -58,6 +59,7 @@ public class DynLightConfig {
         this.enchantedArmorEnabled = config.getBoolean("detection.enchanted-armor", true);
         this.enchantedItemsEnabled = config.getBoolean("detection.enchanted-items", true);
         this.alwaysLitEntitiesEnabled = config.getBoolean("detection.always-lit-entities", true);
+        this.taggedEntitiesEnabled = config.getBoolean("detection.tagged-entities", true);
 
         // Light levels for player equipment (clamped to 0-15)
         this.enchantedArmorLightLevel = clampWithWarning(config.getInt("light-levels.enchanted-armor", 10), 0, 15, "light-levels.enchanted-armor");

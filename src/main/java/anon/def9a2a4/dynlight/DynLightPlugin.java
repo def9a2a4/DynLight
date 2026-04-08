@@ -7,6 +7,7 @@ import anon.def9a2a4.dynlight.detection.EntityLightListener;
 import anon.def9a2a4.dynlight.detection.ItemLightListener;
 import anon.def9a2a4.dynlight.detection.PlayerLightDetector;
 import anon.def9a2a4.dynlight.detection.ProjectileLightListener;
+import anon.def9a2a4.dynlight.detection.TagLightDetector;
 import anon.def9a2a4.dynlight.detection.cache.PlayerEquipmentCache;
 import anon.def9a2a4.dynlight.engine.InvalidationTracker;
 import anon.def9a2a4.dynlight.engine.LightRenderer;
@@ -90,6 +91,7 @@ public class DynLightPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new EntityLightListener(config, sourceManager), this);
         getServer().getPluginManager().registerEvents(burningEntityListener, this);
         getServer().getPluginManager().registerEvents(projectileLightListener, this);
+        getServer().getPluginManager().registerEvents(new TagLightDetector(config, sourceManager), this);
         // Centralized chunk load handler - scans entities using registered detectors
         getServer().getPluginManager().registerEvents(new ChunkLoadListener(sourceManager, this), this);
 

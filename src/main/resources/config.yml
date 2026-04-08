@@ -19,6 +19,7 @@ detection:
   enchanted-armor: true
   enchanted-items: true
   always-lit-entities: true
+  tagged-entities: true  # detect entities with dynlight:<level> scoreboard tags
 
 # Light levels for player equipment
 light-levels:
