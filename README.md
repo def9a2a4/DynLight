@@ -1,8 +1,8 @@
 # DynLight
 
-A dynamic entity-based lighting plugin for Paper 1.21+
+A dynamic entity-based lighting plugin, which allows for integrations with other plugins.
 
-Light sources follow players, illuminate dropped items, and make burning entities glow. Fully configurable, and provides an API for other plugins.
+Held items, dropped items, burning mobs, and other entities glow. Fully configurable, and other plugins can use the API or scoreboard tags to define their own custom glowing entities.
 
 ## Features
 
@@ -19,7 +19,7 @@ Light sources follow players, illuminate dropped items, and make burning entitie
 ### Special Mechanics
 
 - **Water Sensitivity** - Fire-based items (torches, campfires) are extinguished underwater while waterproof items (glowstone, sea lanterns) continue to glow
-- **Client-side only** - Lights are rendered client-side for optimal performance. Inspired by [DynamicLights](https://github.com/xCykrix/DynamicLights)
+- **Client-side only** - Light blocks are packet based, and don't modify the world. Inspired by [DynamicLights](https://github.com/xCykrix/DynamicLights)
 - **Per-Player Toggle** - Players can individually enable/disable dynamic lights client side
 - **Async Rendering** - Light calculations run asynchronously for minimal server impact
 
@@ -203,6 +203,8 @@ DynLight is designed for performance:
 
 
 # Related plugins/projects
+
+This plugin was built primarily to enable dynamic lights for custom ships in the [BlockShips](https://modrinth.com/plugin/blockships) plugin, as I could not find an existing solution which allows integrations with other plugins. Many plugins, mods, and datapacks for dynamic lights exist, and this plugin is in large part inspired by those. Some related ones you may want to check out:
 
 - https://github.com/xCykrix/DynamicLights
 - https://modrinth.com/plugin/smooth-dynamic-light
