@@ -91,7 +91,7 @@ public class DynLightPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(burningEntityListener, this);
         getServer().getPluginManager().registerEvents(projectileLightListener, this);
         // Centralized chunk load handler - scans entities using registered detectors
-        getServer().getPluginManager().registerEvents(new ChunkLoadListener(sourceManager), this);
+        getServer().getPluginManager().registerEvents(new ChunkLoadListener(sourceManager, this), this);
 
         // Start consolidated fire sweep task
         long fireSweepInterval = config.fireSweepInterval;

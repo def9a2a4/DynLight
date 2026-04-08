@@ -279,9 +279,15 @@ public class ProjectileLightListener implements Listener, EntityLightDetector {
                 continue;
             }
 
-            // Skip landed projectiles - clear their trail to prevent flickering
+            // Skip landed projectiles - clear their trail and trigger cleanup
             if (isProjectileLanded(entity)) {
-                positionHistory.remove(entity.getUniqueId());
+                UUID entityId = entity.getUniqueId();
+                if (positionHistory.containsKey(entityId)) {
+                    positionHistory.remove(entityId);
+                    // Invalidate and clear child lights immediately when projectile lands
+                    invalidationTracker.invalidateParent(entityId);
+                    renderer.clearChildLights(entityId);
+                }
                 continue;
             }
 

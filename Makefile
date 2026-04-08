@@ -1,5 +1,6 @@
 .PHONY: build
 build:
+	gradle build
 	gradle shadowJar
 	mkdir -p bin
 	cp build/libs/DynLight*.jar bin/
