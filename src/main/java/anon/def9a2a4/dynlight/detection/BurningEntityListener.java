@@ -70,14 +70,26 @@ public class BurningEntityListener implements Listener, EntityLightDetector {
 
     @EventHandler(ignoreCancelled = true)
     public void onEntityCombust(EntityCombustEvent event) {
-        // Use detector for immediate registration on combust
-        LightSourceInfo info = detect(event.getEntity());
-        if (info != null) {
-            // Update light level (fire light is typically higher than base light)
-            int currentLevel = api.getLightLevel(event.getEntity());
-            if (info.lightLevel() > currentLevel) {
-                api.addLightSource(event.getEntity(), info);
-            }
+        if (!config.burningEntitiesEnabled) return;
+
+        Entity entity = event.getEntity();
+        if (EntityFilters.shouldSkipForBurning(entity)) return;
+
+        // Use event duration instead of current fire ticks — the event fires
+        // BEFORE Bukkit applies fire ticks, so isOnFire() would return false
+        // for one-time ignition sources like flaming projectile hits.
+        if (event.getDuration() <= 0) return;
+
+        EntityLightConfig entityConfig = config.getEntityConfig(entity.getType());
+        int fireLight = entityConfig.fireLight();
+        if (fireLight <= 0) return;
+
+        burningEntities.put(entity.getUniqueId(), entity);
+
+        int currentLevel = api.getLightLevel(entity);
+        if (fireLight > currentLevel) {
+            api.addLightSource(entity, LightSourceInfo.of(fireLight,
+                    entityConfig.horizontalRadius(), entityConfig.height()));
         }
     }
 

@@ -101,6 +101,11 @@ public class ProjectileLightListener implements Listener, EntityLightDetector {
             return;
         }
 
+        // Guard with event duration — the event fires before fire ticks are applied
+        if (event.getDuration() <= 0) {
+            return;
+        }
+
         Entity entity = event.getEntity();
         if (entity instanceof Arrow arrow) {
             trackBurningProjectile(arrow);
