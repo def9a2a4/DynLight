@@ -38,3 +38,7 @@ bin/
 # IntelliJ
 .idea/
 *.iml
+
+# CI startup test
+test-server/
+.temp/

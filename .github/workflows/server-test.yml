@@ -1,0 +1,79 @@
+name: Version Matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Build the plugin jar once (Java 21) and share it with every matrix cell, so the
+  # cells never invoke gradle — 26.x cells can then run on Java 25.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # No gradle wrapper in this repo, so pin the version (same as BlockShips).
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.7.1"
+
+      - name: Build plugin
+        run: make build
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: bin/*.jar
+
+  startup-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with the defCoreLib and BlockShips matrices.
+        minecraft: ['1.21.11', '26.1.2', '26.2', '26.3']
+        server: ['paper', 'purpur']
+
+    name: ${{ matrix.server }} ${{ matrix.minecraft }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 26.x servers require Java 25; 1.21.x run on Java 21.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ startsWith(matrix.minecraft, '26.') && '25' || '21' }}
+
+      - name: Download plugin jar
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin
+          path: bin/
+
+      - name: Server startup test
+        run: make test-server-ci SERVER_VARIANT=${{ matrix.server }} MINECRAFT_VERSION=${{ matrix.minecraft }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.server }}-${{ matrix.minecraft }}
+          path: |
+            test-server/server.log
+            test-server/errors.log
+          if-no-files-found: ignore
