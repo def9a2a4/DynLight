@@ -1,5 +1,7 @@
 # DynLight
 
+[![Download on Modrinth](https://img.shields.io/badge/download-modrinth-00AF5C?style=for-the-badge&logo=modrinth&logoColor=white)](https://modrinth.com/plugin/dynlight) [![Join the Discord](https://img.shields.io/badge/discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://def9a2a4.github.io/discord.html)
+
 A dynamic entity-based lighting plugin, which allows for integrations with other plugins.
 
 Held items, dropped items, burning mobs, and other entities glow. Fully configurable, and other plugins can use the API or scoreboard tags to define their own custom glowing entities.
