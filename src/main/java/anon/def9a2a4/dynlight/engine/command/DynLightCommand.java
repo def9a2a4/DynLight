@@ -4,6 +4,10 @@ import anon.def9a2a4.dynlight.DynLightConfig;
 import anon.def9a2a4.dynlight.engine.LightSourceManager;
 import anon.def9a2a4.dynlight.engine.LightRenderer;
 import anon.def9a2a4.dynlight.engine.PlayerPreferences;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -36,6 +40,8 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
 
     private static final String MSG_PLAYERS_ONLY = ChatColor.RED + "This command can only be used by players.";
     private static final String MSG_NO_PERMISSION = ChatColor.RED + "You don't have permission to use this command.";
+    private static final String GITHUB_URL = "https://github.com/def9a2a4/DynLight";
+    private static final String DISCORD_URL = "https://def9a2a4.github.io/discord.html";
 
     public DynLightCommand(JavaPlugin plugin, Supplier<DynLightConfig> configSupplier,
                            LightSourceManager sourceManager, LightRenderer renderer,
@@ -219,7 +225,9 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== DynLight Commands ===");
+        sender.sendMessage(ChatColor.GOLD + "=== DynLight v" + plugin.getPluginMeta().getVersion() + " ===");
+        sender.sendMessage(ChatColor.GRAY + "Held items, dropped items, burning mobs and other entities give off light.");
+        sender.sendMessage(ChatColor.YELLOW + "/dynlight help " + ChatColor.GRAY + "- Show this help message");
 
         // Show user commands if they have permission
         if (sender.hasPermission("dynlight.use")) {
@@ -239,6 +247,15 @@ public class DynLightCommand implements CommandExecutor, TabCompleter {
         if (!sender.hasPermission("dynlight.use") && !sender.hasPermission("dynlight.admin")) {
             sender.sendMessage(ChatColor.GRAY + "You don't have permission to use any DynLight commands.");
         }
+
+        sender.sendMessage(link("GitHub", GITHUB_URL));
+        sender.sendMessage(link("Discord", DISCORD_URL));
+    }
+
+    private static Component link(String label, String url) {
+        return Component.text(label + ": ", NamedTextColor.GRAY)
+                .append(Component.text(url, NamedTextColor.AQUA, TextDecoration.UNDERLINED)
+                        .clickEvent(ClickEvent.openUrl(url)));
     }
 
     @Override
