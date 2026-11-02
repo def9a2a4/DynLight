@@ -4,16 +4,20 @@ version: ${version}
 api-version: 1.21
 author: def9a2a4
 description: dynamic entity-based lights minecraft plugin
+softdepend: [PlaceholderAPI]
 
 commands:
   dynlight:
     description: DynLight commands
-    usage: /dynlight <help|enable|disable|info|reload|regen|stats>
+    usage: /dynlight <help|enable|disable|info|reload|regen|stats> [player]
 
 permissions:
   dynlight.use:
     description: Toggle dynamic lights for yourself
     default: true
+  dynlight.others:
+    description: Turn dynamic lights on or off for other players
+    default: op
   dynlight.admin:
     description: Access to DynLight admin commands
     default: op

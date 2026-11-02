@@ -41,6 +41,7 @@ public class DynLightPlugin extends JavaPlugin {
     private LightRenderer renderer;
     private PlayerLightDetector playerDetector;
     private PlayerPreferences playerPreferences;
+    private Messages messages;
     private PlayerEquipmentCache equipmentCache;
     private BurningEntityListener burningEntityListener;
     private ProjectileLightListener projectileLightListener;
@@ -71,6 +72,7 @@ public class DynLightPlugin extends JavaPlugin {
         // Load configuration
         saveDefaultConfig();
         this.config = new DynLightConfig(getConfig());
+        this.messages = new Messages(this);
 
         // Initialize components
         this.sourceManager = new LightSourceManager(invalidationTracker);
@@ -125,11 +127,17 @@ public class DynLightPlugin extends JavaPlugin {
         PluginCommand cmd = getCommand("dynlight");
         if (cmd != null) {
             DynLightCommand commandHandler = new DynLightCommand(
-                    this, () -> config, sourceManager, renderer, playerPreferences,
+                    this, () -> config, sourceManager, renderer, playerPreferences, messages,
                     this::reloadConfiguration, this::regenerateLightSources
             );
             cmd.setExecutor(commandHandler);
             cmd.setTabCompleter(commandHandler);
+        }
+
+        // PlaceholderAPI is optional; only touch the expansion class when it's installed
+        if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            DynLightExpansion.register(this, playerPreferences, messages);
+            getLogger().info("Registered PlaceholderAPI placeholders (%dynlight_status%, %dynlight_enabled%)");
         }
 
         // Set instance last to ensure all components are initialized
@@ -287,6 +295,7 @@ public class DynLightPlugin extends JavaPlugin {
      */
     private void reloadConfiguration() {
         reloadConfig();
+        messages.reload();
         this.config = new DynLightConfig(getConfig());
         // Update renderer with new config (for render distance changes)
         this.renderer.updateConfig(config);

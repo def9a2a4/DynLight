@@ -1,0 +1,80 @@
+# DynLight messages
+#
+# Formatting uses MiniMessage: https://docs.advntr.dev/minimessage/format.html
+# (e.g. <red>, <bold>, <#ff8800>, <gradient:gold:yellow>...</gradient>).
+# Words in <angle_brackets> that aren't colours are filled in by the plugin, e.g. <player>.
+# Set a message to "" to hide it. Missing keys fall back to the defaults.
+# Apply changes with /dynlight reload.
+
+general:
+  players-only: "<red>This command can only be used by players."
+  no-permission: "<red>You don't have permission to use this command."
+  player-not-found: "<red>Player not found: <player>"
+
+toggle:
+  enabled: "<green>Dynamic lights enabled!"
+  disabled: "<yellow>Dynamic lights disabled."
+  already-enabled: "<yellow>Dynamic lights are already enabled for you."
+  already-disabled: "<yellow>Dynamic lights are already disabled for you."
+  # Sent to an admin using /dynlight enable|disable <player>
+  enabled-other: "<green>Dynamic lights enabled for <player>."
+  disabled-other: "<yellow>Dynamic lights disabled for <player>."
+  already-enabled-other: "<yellow>Dynamic lights are already enabled for <player>."
+  already-disabled-other: "<yellow>Dynamic lights are already disabled for <player>."
+  # Sent to the player whose lights an admin changed (if they're online)
+  enabled-by: "<green>Your dynamic lights were enabled by <sender>."
+  disabled-by: "<yellow>Your dynamic lights were disabled by <sender>."
+
+reload:
+  success: "<green>DynLight configuration reloaded!"
+  error: "<red>Error reloading configuration: <error>"
+
+regen:
+  success: "<green>Light sources regenerated! <gray>(<count> sources detected)"
+  error: "<red>Error regenerating light sources: <error>"
+
+info:
+  header: "<gold>=== DynLight Info ==="
+  sources: "<yellow>Active light sources: <white><count>"
+  players: "<yellow>Online players: <white><online> <gray>(<green><enabled> enabled<gray>, <red><disabled> disabled<gray>)"
+  disabled-header: "<yellow>Players with lights disabled:"
+  disabled-online: "<gray>  - <white><player>"
+  disabled-offline: "<gray>  - <dark_gray><player> (offline)"
+
+stats:
+  header: "<gold>=== DynLight Stats ==="
+  sources: "<yellow>Light sources: <white><count>"
+  world: "<gray>  <world>: <white><count>"
+  players: "<yellow>Online players: <white><online>"
+  update-interval: "<yellow>Update interval: <white><ticks> ticks"
+  render-distance: "<yellow>Render distance: <white><blocks> blocks"
+  features-header: "<gold>=== Features ==="
+  feature-on: "<gray>  <feature>: <green>ON"
+  feature-off: "<gray>  <feature>: <red>OFF"
+  features:
+    held-items: "Held items"
+    dropped-items: "Dropped items"
+    burning-entities: "Burning entities"
+    flaming-arrows: "Flaming arrows"
+    enchanted-armor: "Enchanted armor"
+    enchanted-items: "Enchanted items"
+    always-lit-entities: "Always-lit entities"
+
+help:
+  header: "<gold>=== DynLight v<version> ==="
+  description: "<gray>Held items, dropped items, burning mobs and other entities give off light."
+  help: "<yellow>/dynlight help <gray>- Show this help message"
+  enable: "<yellow>/dynlight enable <gray>- Enable dynamic lights for yourself"
+  disable: "<yellow>/dynlight disable <gray>- Disable dynamic lights for yourself"
+  enable-other: "<yellow>/dynlight enable <player> <gray>- Enable dynamic lights for a player"
+  disable-other: "<yellow>/dynlight disable <player> <gray>- Disable dynamic lights for a player"
+  info: "<yellow>/dynlight info <gray>- Show light info and player status"
+  reload: "<yellow>/dynlight reload <gray>- Reload configuration and messages"
+  regen: "<yellow>/dynlight regen <gray>- Regenerate all light sources"
+  stats: "<yellow>/dynlight stats <gray>- Show plugin statistics"
+  no-commands: "<gray>You don't have permission to use any DynLight commands."
+
+# PlaceholderAPI: what %dynlight_status% shows (%dynlight_enabled% is always true/false)
+placeholder:
+  enabled: "<green>enabled"
+  disabled: "<red>disabled"

@@ -101,15 +101,32 @@ The light column will once place one light block -- we search wider than you'd t
 
 ## Commands
 
-| Command             | Description                         | Permission       |
-| ------------------- | ----------------------------------- | ---------------- |
-| `/dynlight help`    | Show available commands             | -                |
-| `/dynlight enable`  | Enable dynamic lights for yourself  | `dynlight.use`   |
-| `/dynlight disable` | Disable dynamic lights for yourself | `dynlight.use`   |
-| `/dynlight info`    | Show active light source count      | `dynlight.admin` |
-| `/dynlight stats`   | Show detailed statistics            | `dynlight.admin` |
-| `/dynlight reload`  | Reload configuration                | `dynlight.admin` |
-| `/dynlight regen`   | Regenerate all light sources        | `dynlight.admin` |
+| Command                      | Description                                       | Permission        |
+| ---------------------------- | ------------------------------------------------- | ----------------- |
+| `/dynlight help`             | Show available commands                           | -                 |
+| `/dynlight enable`           | Enable dynamic lights for yourself                | `dynlight.use`    |
+| `/dynlight disable`          | Disable dynamic lights for yourself               | `dynlight.use`    |
+| `/dynlight enable <player>`  | Enable dynamic lights for a player (even offline) | `dynlight.others` |
+| `/dynlight disable <player>` | Disable dynamic lights for a player               | `dynlight.others` |
+| `/dynlight info`             | Show active light source count                    | `dynlight.admin`  |
+| `/dynlight stats`            | Show detailed statistics                          | `dynlight.admin`  |
+| `/dynlight reload`           | Reload configuration and messages                 | `dynlight.admin`  |
+| `/dynlight regen`            | Regenerate all light sources                      | `dynlight.admin`  |
+
+`dynlight.use` is given to everyone by default; `dynlight.others` and `dynlight.admin` to ops.
+
+## Messages
+
+Every chat message (apart from the GitHub/Discord links in `/dynlight help`) is in `plugins/DynLight/messages.yml`, in [MiniMessage](https://docs.advntr.dev/minimessage/format.html) format. Edit it to restyle or translate DynLight, set a message to `""` to hide it, and apply changes with `/dynlight reload`.
+
+## PlaceholderAPI
+
+With [PlaceholderAPI](https://modrinth.com/plugin/placeholderapi) installed, DynLight adds:
+
+| Placeholder          | Value                                                                   |
+| -------------------- | ----------------------------------------------------------------------- |
+| `%dynlight_status%`  | Whether the player has dynamic lights on (text set in `messages.yml`)    |
+| `%dynlight_enabled%` | `true` or `false`                                                       |
 
 
 ## Scoreboard Tag Lights

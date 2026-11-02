@@ -1,5 +1,6 @@
 .PHONY: build
 build:
+	rm -rf build/libs bin
 	gradle build
 	gradle shadowJar
 	mkdir -p bin
@@ -48,7 +49,8 @@ MINECRAFT_VERSION ?= 1.21.11
 DOWNLOAD_CACHE := .temp/download-cache
 SERVER_JAR := $(DOWNLOAD_CACHE)/$(SERVER_VARIANT)-$(MINECRAFT_VERSION).jar
 TEST_SERVER_DIR := test-server
-ERROR_PATTERN := ERROR.*$(PLUGIN)|$(PLUGIN).*(Exception|Throwable)|Could not load .*$(PLUGIN)|Error occurred while (enabling|disabling) $(PLUGIN)|at $(PKG)
+# Anchored to Paper's log formats so a file path containing the repo name can't match
+ERROR_PATTERN := (ERROR|FATAL)\]: \[$(PLUGIN)\]|Could not load plugin '$(PLUGIN)|Error occurred while (enabling|disabling) $(PLUGIN) v|Could not pass event .* to $(PLUGIN) v|[[:space:]]at $(PKG)\.
 
 # Paper: Fill API (v2 was retired). builds/latest returns the download URL directly.
 $(DOWNLOAD_CACHE)/paper-%.jar:
@@ -56,13 +58,13 @@ $(DOWNLOAD_CACHE)/paper-%.jar:
 	url=$$(curl -fsSL -H "User-Agent: $(PLUGIN)-ci (github actions)" \
 		"https://fill.papermc.io/v3/projects/paper/versions/$*/builds/latest" \
 		| jq -r '.downloads."server:default".url'); \
-	curl -fsSL -o $@ "$$url"
+	curl -fsSL -o $@.tmp "$$url" && mv $@.tmp $@
 
 # Purpur: resolve the latest build for the version, then download it.
 $(DOWNLOAD_CACHE)/purpur-%.jar:
 	mkdir -p $(DOWNLOAD_CACHE)
 	build=$$(curl -fsSL "https://api.purpurmc.org/v2/purpur/$*" | jq -r '.builds.latest'); \
-	curl -fsSL -o $@ "https://api.purpurmc.org/v2/purpur/$*/$$build/download"
+	curl -fsSL -o $@.tmp "https://api.purpurmc.org/v2/purpur/$*/$$build/download" && mv $@.tmp $@
 
 .PHONY: test-server-download
 test-server-download: $(SERVER_JAR)

@@ -18,10 +18,15 @@ repositories {
         name = "papermc"
         url = uri("https://repo.papermc.io/repository/maven-public/")
     }
+    maven {
+        name = "placeholderapi"
+        url = uri("https://repo.extendedclip.com/releases/")
+    }
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+    compileOnly("me.clip:placeholderapi:2.12.3")
     implementation("org.bstats:bstats-bukkit:3.1.0")
 }
 
@@ -35,7 +40,9 @@ tasks {
         }
     }
 
+    // Only the shaded jar ships: the plain jar had the same file name and lacks bStats
     jar {
+        enabled = false
         archiveBaseName.set("DynLight")
         manifest {
             attributes["paperweight-mappings-namespace"] = "mojang"
