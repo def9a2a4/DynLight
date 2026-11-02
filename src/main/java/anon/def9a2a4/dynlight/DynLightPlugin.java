@@ -142,7 +142,6 @@ public class DynLightPlugin extends JavaPlugin {
 
         // Set instance last to ensure all components are initialized
         instance = this;
-        getLogger().info("DynLight plugin enabled!");
     }
 
     /**
@@ -192,25 +191,28 @@ public class DynLightPlugin extends JavaPlugin {
                     Map<UUID, PlayerLightUpdate> updates = renderer.computeUpdates(allSnapshots, playerPositions, stateSnapshot);
                     // Single atomic set of result - no separate "running" flag needed
                     asyncState.set(new ComputedUpdate(updates, allSnapshots, gen));
+                    lastUpdateError.set(null);   // recovered: log the next failure again
                 } catch (Exception e) {
-                    getLogger().severe("Error computing light updates: " + e.getMessage());
-                    getLogger().severe(e.toString());
-                    for (StackTraceElement element : e.getStackTrace()) {
-                        getLogger().severe("  at " + element);
-                    }
+                    logUpdateError("Error computing light updates", e);
                     // Set empty result to unblock next computation
                     asyncState.set(new ComputedUpdate(new java.util.HashMap<>(), new ArrayList<>(), gen));
                 }
             });
         } catch (Exception e) {
-            getLogger().severe("Error in light update cycle: " + e.getMessage());
-            getLogger().severe(e.toString());
-            for (StackTraceElement element : e.getStackTrace()) {
-                getLogger().severe("  at " + element);
-            }
+            logUpdateError("Error in light update cycle", e);
             // Reset state to allow recovery on next tick
             asyncState.set(null);
         }
+    }
+
+    /** The last update-cycle error logged, so a persistent failure logs once instead of every cycle. */
+    private final AtomicReference<String> lastUpdateError = new AtomicReference<>();
+
+    /** Logs an update-cycle failure with its stack trace, unless it repeats the previous one. */
+    private void logUpdateError(String context, Exception e) {
+        String key = context + ": " + e;
+        if (key.equals(lastUpdateError.getAndSet(key))) return;
+        getLogger().log(java.util.logging.Level.SEVERE, context + " (further identical errors are not logged)", e);
     }
 
     /**
@@ -345,7 +347,6 @@ public class DynLightPlugin extends JavaPlugin {
         if (playerPreferences != null) {
             playerPreferences.save();
         }
-        getLogger().info("DynLight plugin disabled!");
     }
 
     /**
